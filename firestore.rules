@@ -1,0 +1,139 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isPlatformOwner() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/platformAdmins/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isOrgSuperAdmin(orgId) {
+      let userData = getUserData();
+      return isAuthenticated() && userData.orgId == orgId && userData.role == 'super_admin';
+    }
+
+    function isOrgStaff(orgId) {
+      let userData = getUserData();
+      return isAuthenticated() && userData.orgId == orgId && (userData.role == 'staff' || userData.role == 'super_admin');
+    }
+
+    function isOrgStudent(orgId) {
+      let userData = getUserData();
+      return isAuthenticated() && userData.orgId == orgId && userData.role == 'student';
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Platform Admins - Only readable/writable by existing platform owners (or setup script)
+    match /platformAdmins/{userId} {
+      allow read: if isPlatformOwner();
+      // SECURITY NOTE: This allows anyone to claim platform ownership. 
+      // In a real production app, this should be removed after bootstrap 
+      // or handled via Cloud Functions/Admin SDK only.
+      allow create: if isOwner(userId);
+      allow update, delete: if isPlatformOwner();
+    }
+
+    // Platform Audit Logs
+    match /platformAuditLogs/{logId} {
+      allow read: if isPlatformOwner();
+      allow write: if isPlatformOwner();
+    }
+
+    // Organizations
+    match /organizations/{orgId} {
+      allow read: if true; // Public allows checking org name/status at login
+      allow create: if isPlatformOwner();
+      allow update: if isPlatformOwner() || isOrgSuperAdmin(orgId);
+      allow delete: if isPlatformOwner();
+
+      // Org Members (Subcollection or just query user profiles?)
+      // We store members in global users collection, but maybe mirrored here?
+      // If mirrored:
+      match /members/{userId} {
+        allow read: if isPlatformOwner() || isOrgStaff(orgId) || isOwner(userId);
+        allow write: if isPlatformOwner() || isOrgSuperAdmin(orgId);
+      }
+
+      // Interviews
+      match /interviews/{interviewId} {
+        allow read: if isPlatformOwner() || isOrgStaff(orgId) || (isOrgStudent(orgId) && resource.data.uid == request.auth.uid);
+        allow create: if isOrgStudent(orgId) && request.resource.data.uid == request.auth.uid;
+        allow update: if isPlatformOwner() || isOrgStaff(orgId) || (isOrgStudent(orgId) && resource.data.uid == request.auth.uid);
+        
+        // Subcollections
+        match /transcript/{chunkId} {
+           allow read, write: if isPlatformOwner() || isOrgStaff(orgId) || (isOrgStudent(orgId)); // Ideally stricter
+        }
+        match /events/{eventId} {
+           allow read, write: if isPlatformOwner() || isOrgStaff(orgId) || (isOrgStudent(orgId));
+        }
+        match /reports/{reportId} {
+           allow read: if isPlatformOwner() || isOrgStaff(orgId) || (isOrgStudent(orgId));
+           allow write: if isPlatformOwner() || isOrgStaff(orgId) || (isOrgStudent(orgId)); // AI needs write access (via client for now)
+        }
+      }
+      
+      // Stats
+      match /stats/{docId} {
+        allow read: if isPlatformOwner() || isOrgStaff(orgId) || isOrgStudent(orgId); // Students need partial read?
+        allow write: if isPlatformOwner() || isOrgStaff(orgId);
+      }
+    }
+
+    // Org Slugs (Global map)
+    match /orgSlugs/{slug} {
+      allow read: if true; // Public for resolving login
+      allow write: if isPlatformOwner();
+    }
+
+    // Users (Global Profile)
+    match /users/{userId} {
+      // Read: Own profile, platform owner, or org admin of same org
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || 
+        isPlatformOwner() ||
+        (getUserData().orgId == resource.data.orgId && (getUserData().role == 'super_admin' || getUserData().role == 'staff'))
+      );
+      
+      // Create: Own profile creation (first login), or platform owner, or org super_admin creating users for their org
+      allow create: if isAuthenticated() && (
+        request.auth.uid == userId || 
+        isPlatformOwner() ||
+        (getUserData().role == 'super_admin' && request.resource.data.orgId == getUserData().orgId)
+      );
+      
+      // Update: Own profile, platform owner, or org super_admin for their org members
+      allow update: if isAuthenticated() && (
+        request.auth.uid == userId || 
+        isPlatformOwner() ||
+        (getUserData().role == 'super_admin' && resource.data.orgId == getUserData().orgId)
+      );
+      
+      // List: Platform owner or org admin/staff can list their org's users
+      allow list: if isPlatformOwner() || (
+        isAuthenticated() && 
+        resource.data.orgId == getUserData().orgId && 
+        (getUserData().role == 'super_admin' || getUserData().role == 'staff')
+      );
+    }
+
+    // Impersonations
+    match /impersonations/{userId} {
+      allow read: if isPlatformOwner();
+      allow write: if isPlatformOwner();
+    }
+  }
+}
