@@ -127,7 +127,7 @@ export interface UserSettings {
 // =====================
 // Interview Types
 // =====================
-export type InterviewMode = "fresher" | "intermediate" | "professional";
+export type InterviewMode = "fresher" | "intermediate" | "professional" | "voice";
 export type InterviewStatus = "created" | "live" | "ended" | "report_ready";
 
 export interface Interview {
@@ -157,7 +157,9 @@ export type InterviewEventType =
     | "followup_question"
     | "note_update"
     | "timer_warning"
-    | "mode_switch";
+    | "mode_switch"
+    | "start"
+    | "end";
 
 export interface InterviewEvent {
     id: string;
@@ -228,6 +230,7 @@ export interface InterviewReport {
     };
     practiceQuestions: string[];
     jdAlignmentNotes?: string;
+    feedback?: string;
     verdict: HiringVerdict;
     generatedAt: Timestamp;
 }

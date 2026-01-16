@@ -3,9 +3,9 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useOrg } from "../../layout";
-import { getInterviewReport, getInterview } from "@/lib/firebase/firestore";
-import type { InterviewReport, Interview } from "@/types";
+import { useOrg } from "@/components/providers/OrgContext";
+import { getInterviewReport, getInterview, getTranscript } from "@/lib/firebase/firestore";
+import type { InterviewReport, Interview, TranscriptChunk } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,6 +27,7 @@ export default function InterviewReportPage() {
 
     const [report, setReport] = useState<InterviewReport | null>(null);
     const [interview, setInterview] = useState<Interview | null>(null);
+    const [transcript, setTranscript] = useState<TranscriptChunk[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -37,12 +38,14 @@ export default function InterviewReportPage() {
 
     const loadReport = async () => {
         try {
-            const [reportData, interviewData] = await Promise.all([
+            const [reportData, interviewData, transcriptData] = await Promise.all([
                 getInterviewReport(orgId!, interviewId),
                 getInterview(orgId!, interviewId),
+                getTranscript(orgId!, interviewId),
             ]);
             setReport(reportData);
             setInterview(interviewData);
+            setTranscript(transcriptData);
         } catch (error) {
             console.error("Error loading report:", error);
         } finally {
@@ -82,7 +85,7 @@ export default function InterviewReportPage() {
     // Attempt to parse feedback if it's JSON
     let parsedFeedback: any = null;
     try {
-        parsedFeedback = JSON.parse(report.feedback);
+        parsedFeedback = report.feedback ? JSON.parse(report.feedback) : null;
     } catch {
         // Not JSON, treat as string
     }
@@ -100,7 +103,7 @@ export default function InterviewReportPage() {
                     <div>
                         <h1 className="text-3xl font-bold">Interview Report</h1>
                         <p className="text-muted-foreground">
-                            {interview?.roleApplied} • {new Date(report.createdAt.toDate()).toLocaleDateString()}
+                            {interview?.roleApplied} • {report.generatedAt ? new Date(report.generatedAt.toDate()).toLocaleDateString() : 'Date N/A'}
                         </p>
                     </div>
                 </div>
@@ -123,11 +126,11 @@ export default function InterviewReportPage() {
                         <CardTitle>Overall Score</CardTitle>
                     </CardHeader>
                     <CardContent className="flex flex-col items-center justify-center py-6">
-                        <div className={`flex h-32 w-32 items-center justify-center rounded-full border-4 text-4xl font-bold ${getScoreColor(report.score)}`}>
-                            {report.score > 0 ? report.score : "?"}
+                        <div className={`flex h-32 w-32 items-center justify-center rounded-full border-4 text-4xl font-bold ${getScoreColor(report.overallScore)}`}>
+                            {report.overallScore > 0 ? report.overallScore : "?"}
                         </div>
                         <p className="mt-4 text-center text-sm text-muted-foreground">
-                            {report.score >= 70 ? "Ready for Job" : "Needs Improvement"}
+                            {report.overallScore >= 70 ? "Ready for Job" : "Needs Improvement"}
                         </p>
                     </CardContent>
                 </Card>
@@ -160,7 +163,7 @@ export default function InterviewReportPage() {
                                 </>
                             ) : (
                                 <div className="prose prose-sm max-w-none text-muted-foreground whitespace-pre-wrap">
-                                    {report.feedback.slice(0, 500)}...
+                                    {(report.feedback || "").slice(0, 500)}...
                                     <p className="text-xs mt-2 italic">(See full breakdown below)</p>
                                 </div>
                             )}
@@ -186,7 +189,7 @@ export default function InterviewReportPage() {
                     <Card>
                         <CardContent className="pt-6">
                             <div className="prose prose-slate max-w-none dark:prose-invert whitespace-pre-wrap">
-                                {parsedFeedback?.detailed || report.feedback}
+                                {parsedFeedback?.detailed || report.feedback || "No feedback available."}
                             </div>
                         </CardContent>
                     </Card>
@@ -195,29 +198,33 @@ export default function InterviewReportPage() {
                 <TabsContent value="transcript" className="mt-6">
                     <Card>
                         <CardContent className="pt-6 space-y-4">
-                            {report.transcript?.map((entry, index) => (
-                                <div
-                                    key={index}
-                                    className={`flex gap-4 p-4 rounded-lg ${
-                                        entry.speaker === "interviewer"
-                                            ? "bg-muted/50"
-                                            : "bg-primary/5"
-                                    }`}
-                                >
-                                    <div className="flex-shrink-0 w-24">
-                                        <span className={`text-xs font-bold uppercase ${
+                            {transcript.length > 0 ? (
+                                transcript.map((entry, index) => (
+                                    <div
+                                        key={index}
+                                        className={`flex gap-4 p-4 rounded-lg ${
                                             entry.speaker === "interviewer"
-                                                ? "text-muted-foreground"
-                                                : "text-primary"
-                                        }`}>
-                                            {entry.speaker}
-                                        </span>
+                                                ? "bg-muted/50"
+                                                : "bg-primary/5"
+                                        }`}
+                                    >
+                                        <div className="flex-shrink-0 w-24">
+                                            <span className={`text-xs font-bold uppercase ${
+                                                entry.speaker === "interviewer"
+                                                    ? "text-muted-foreground"
+                                                    : "text-primary"
+                                            }`}>
+                                                {entry.speaker}
+                                            </span>
+                                        </div>
+                                        <div className="flex-1 whitespace-pre-wrap text-sm">
+                                            {entry.text}
+                                        </div>
                                     </div>
-                                    <div className="flex-1 whitespace-pre-wrap text-sm">
-                                        {entry.text}
-                                    </div>
-                                </div>
-                            ))}
+                                ))
+                            ) : (
+                                <p className="text-muted-foreground text-center">No transcript available.</p>
+                            )}
                         </CardContent>
                     </Card>
                 </TabsContent>

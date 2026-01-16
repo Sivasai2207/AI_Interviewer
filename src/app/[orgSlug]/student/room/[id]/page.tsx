@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { useOrg } from "../../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import { useInterviewStore } from "@/store";
 import { getGeminiClient } from "@/lib/gemini/client";
 import {
@@ -20,7 +20,7 @@ import {
     Timer,
     InterviewHeader,
 } from "@/components/interview";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, AlertCircle } from "lucide-react";
 import type { Interview, InterviewContext } from "@/types";
@@ -35,19 +35,21 @@ export default function InterviewRoomPage() {
     const interviewId = params.id as string;
 
     const {
-        isRecording,
+        timer,
         currentQuestion,
         transcript,
         isEvaluatorMode,
-        timeRemaining,
-        setRecording,
+        updateTimer,
         setCurrentQuestion,
-        addTranscriptEntry,
+        addToTranscript,
         setEvaluatorMode,
-        setTimeRemaining,
-        decrementTime,
-        resetInterview,
+        reset: resetInterview,
     } = useInterviewStore();
+
+    // Map store values to local variables for compatibility
+    const isRecording = timer.isRunning;
+    const timeRemaining = timer.remainingSeconds;
+    const setRecording = (isRunning: boolean) => updateTimer({ isRunning });
 
     const [interview, setInterview] = useState<Interview | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -63,17 +65,15 @@ export default function InterviewRoomPage() {
     }, [user, orgId, interviewId]);
 
     // Timer logic
+    // Timer logic is handled in Timer component
     useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if (isRecording && !isEvaluatorMode && timeRemaining > 0) {
-            interval = setInterval(() => {
-                decrementTime();
-            }, 1000);
-        } else if (timeRemaining === 0 && !isEvaluatorMode) {
-            handleTimeUp();
+        if (timeRemaining === 0 && !isEvaluatorMode && interview) {
+             // Optional: handle side effects if timer hits 0 from store updates
+             // But Timer component calls onTimeUp, so we might not need this useEffect at all
+             // except for synchronization issues. 
+             // Leaving it empty or relying on Timer component callback.
         }
-        return () => clearInterval(interval);
-    }, [isRecording, isEvaluatorMode, timeRemaining]);
+    }, [timeRemaining, isEvaluatorMode, interview]);
 
     const loadInterview = async () => {
         try {
@@ -86,7 +86,10 @@ export default function InterviewRoomPage() {
             }
 
             setInterview(data);
-            setTimeRemaining(data.durationMin * 60);
+            updateTimer({ 
+                totalSeconds: data.durationMin * 60,
+                remainingSeconds: data.durationMin * 60 
+            });
 
             // Initialize AI
             await initializeAI(data);
@@ -103,20 +106,22 @@ export default function InterviewRoomPage() {
             const context: InterviewContext = {
                 role: data.roleApplied,
                 industry: data.targetIndustry,
-                experience: data.yearsOfExperience,
-                jdText: data.jobDescription,
-                hasJD: !!data.jobDescription,
-                mode: "voice", // or from data
+                mode: data.mode,
+                durationMin: data.durationMin,
+                resumeText: data.resumeText,
+                hasJD: data.hasJD,
+                jdText: data.jdText,
+                jdYears: data.jdYearsRequired,
             };
 
             const firstQuestion = await client.initializeInterview(context);
             setCurrentQuestion(firstQuestion);
             setRecording(true);
             
-            // Log event
+            // Log start event
             await addInterviewEvent(orgId!, interviewId, {
                 type: "start",
-                description: "Interview started",
+                payload: { text: "Interview started" },
             });
             
             // Update status to live
@@ -134,13 +139,13 @@ export default function InterviewRoomPage() {
         setIsSubmitting(true);
         try {
             // Add user answer to transcript
-            addTranscriptEntry({ speaker: "candidate", text: answer, timestamp: Date.now() });
-            await addTranscriptChunk(orgId!, interviewId, {
-                speaker: "candidate",
+            const candidateChunk = {
+                speaker: "candidate" as const,
                 text: answer,
-                timestamp: Date.now(),
-            });
-
+                sequenceNumber: transcript.length + 1,
+            };
+            addToTranscript(candidateChunk);
+            await addTranscriptChunk(orgId!, interviewId, candidateChunk);
             const client = getGeminiClient(GEMINI_API_KEY);
             const response = await client.sendMessage(answer, timeRemaining);
 
@@ -150,12 +155,13 @@ export default function InterviewRoomPage() {
             } else {
                 // Add AI question
                 setCurrentQuestion(response);
-                addTranscriptEntry({ speaker: "interviewer", text: response, timestamp: Date.now() });
-                await addTranscriptChunk(orgId!, interviewId, {
-                    speaker: "interviewer",
+                const interviewerChunk = {
+                    speaker: "interviewer" as const,
                     text: response,
-                    timestamp: Date.now(),
-                });
+                    sequenceNumber: transcript.length + 2, // approximation, strictly should be transcript.length + 1 after previous add
+                };
+                addToTranscript(interviewerChunk);
+                await addTranscriptChunk(orgId!, interviewId, interviewerChunk);
             }
         } catch (err) {
             console.error("Error sending message:", err);
@@ -192,29 +198,35 @@ export default function InterviewRoomPage() {
             const context: InterviewContext = {
                 role: interview!.roleApplied,
                 industry: interview!.targetIndustry,
-                experience: interview!.yearsOfExperience,
-                jdText: interview!.jobDescription,
-                hasJD: !!interview!.jobDescription,
-                mode: "voice",
+                mode: interview!.mode,
+                durationMin: interview!.durationMin,
+                resumeText: interview!.resumeText,
+                hasJD: interview!.hasJD,
+                jdText: interview!.jdText,
+                jdYears: interview!.jdYearsRequired,
             };
 
             // Generate Report
             const reportRaw = await client.generateReport(context, transcript);
             
-            // Parse Report (Assuming JSON or Structure, but assuming Raw text for now or simple parse)
-            // Ideally prompts.ts returns structured JSON. For now we save the raw report
-            // or we try to parse it if we formatted the prompt that way.
-            // Let's assume it's Markdown/Text for now and we save it.
-            
             await saveInterviewReport(orgId!, interviewId, {
-                interviewId,
-                userId: user!.uid,
-                score: 0, // Placeholder, usually parsed from report
+                verdict: "hire", // Placeholder
+                overallScore: 0, // Placeholder
                 feedback: reportRaw,
+                breakdown: {
+                    fundamentals: 0,
+                    projectDepth: 0,
+                    problemSolving: 0,
+                    systemDesign: 0,
+                    communication: 0,
+                    roleFit: 0
+                },
                 strengths: [],
                 weaknesses: [],
-                transcript: transcript,
-                createdAt: new Date(),
+                redFlags: [],
+                missedOpportunities: [],
+                actionPlan: { sevenDay: [], thirtyDay: [] },
+                practiceQuestions: [],
             });
 
             await updateInterview(orgId!, interviewId, { status: "report_ready" });
@@ -258,19 +270,16 @@ export default function InterviewRoomPage() {
     return (
         <div className="container mx-auto max-w-6xl p-4 lg:p-8 h-[calc(100vh-4rem)] flex flex-col gap-4">
             <InterviewHeader
-                role={interview?.roleApplied || "Candidate"}
-                status={isEvaluatorMode ? "Evaluator Mode" : "Live Interview"}
-                timeRemaining={timeRemaining}
-                onEndSession={handleEndInterview}
+                role={interview!.roleApplied}
+                mode={interview!.mode}
+                industry={interview!.targetIndustry}
+                onEndInterview={handleEndInterview}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
                 {/* Left Panel: Question & Input */}
                 <div className="lg:col-span-2 flex flex-col gap-4 min-h-0">
-                    <QuestionPanel
-                        question={currentQuestion}
-                        isTyping={isSubmitting} // AI thinking state
-                    />
+                    <QuestionPanel className="mb-6" />
                     
                     <AnswerInput
                         onSubmit={handleSubmitAnswer}
@@ -283,13 +292,9 @@ export default function InterviewRoomPage() {
 
                 {/* Right Panel: Transcript & Info */}
                 <div className="flex flex-col gap-4 min-h-0">
-                    <TranscriptPanel
-                        transcript={transcript}
-                        className="flex-1"
-                    />
+                    <TranscriptPanel className="flex-1" />
                     <Timer
-                        seconds={timeRemaining}
-                        totalSeconds={interview?.durationMin ? interview.durationMin * 60 : 900}
+                        onTimeUp={handleTimeUp}
                     />
                 </div>
             </div>

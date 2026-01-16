@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useOrg } from "../../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Settings, Building2 } from "lucide-react";

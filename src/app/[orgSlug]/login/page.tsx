@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { signIn, signInWithGoogle } from "@/lib/firebase/auth";
 import { getUserProfile, getPlatformAdmin, getActiveImpersonation } from "@/lib/firebase/firestore";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { useOrg } from "../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import { signOut } from "@/lib/firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

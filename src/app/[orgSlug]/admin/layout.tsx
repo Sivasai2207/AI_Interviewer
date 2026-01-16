@@ -4,7 +4,7 @@ import React, { useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { useOrg } from "../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import { signOut } from "@/lib/firebase/auth";
 import { Button } from "@/components/ui/button";
 import {

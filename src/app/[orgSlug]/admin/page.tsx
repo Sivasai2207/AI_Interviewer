@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useOrg } from "../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import { getOrgStats, getOrgStudents, getOrgInterviews } from "@/lib/firebase/firestore";
 import type { OrgStats, UserProfile, Interview } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

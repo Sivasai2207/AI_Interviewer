@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { useOrg } from "../../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { User, Mail, Hash, Building2 } from "lucide-react";
 

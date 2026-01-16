@@ -37,21 +37,26 @@ RESPONSE FORMAT:
 
 // Mode-specific prompts
 export const MODE_PROMPTS = {
-    fresher: `MODE: FRESHER
+  fresher: `MODE: FRESHER
 Difficulty: foundational + practical basics.
 Focus: core CS/role fundamentals, clarity, small project depth, debugging basics, simple system thinking.
 Avoid: huge distributed systems deep dives unless the resume explicitly shows it.
 Expectations: candidate may not know everything; evaluate reasoning and learning mindset.`,
 
-    intermediate: `MODE: INTERMEDIATE
+  intermediate: `MODE: INTERMEDIATE
 Difficulty: moderate to deep.
 Focus: project architecture, APIs, data modeling, performance, testing strategy, CI/CD awareness, debugging, tradeoffs, some system design.
 Expectations: candidate should justify decisions with reasoning and examples.`,
 
-    professional: `MODE: PROFESSIONAL
+  professional: `MODE: PROFESSIONAL
 Difficulty: deep and uncompromising.
 Focus: system design at scale, reliability, observability, security, cost, incident response, architecture tradeoffs, leadership signals.
 Expectations: candidate must show ownership, metrics, and strong engineering judgment.`,
+
+  voice: `MODE: VOICE INTERVIEW
+Difficulty: conversational but technically rigorous.
+Focus: clear communication, ability to explain complex concepts verbally, thinking on feet.
+Expectations: concise answers, strong verbal articulation of technical ideas.`,
 };
 
 // Evaluator Mode prompt
@@ -99,15 +104,15 @@ If transcript is incomplete (candidate ended early), still produce the best poss
 
 // Context template for interview start
 export function buildInterviewContext(context: {
-    role: string;
-    industry: string;
-    durationMin: number;
-    resumeText: string;
-    hasJD: boolean;
-    jdText?: string;
-    jdYears?: string;
+  role: string;
+  industry: string;
+  durationMin: number;
+  resumeText: string;
+  hasJD: boolean;
+  jdText?: string;
+  jdYears?: string;
 }): string {
-    let contextPrompt = `INTERVIEW CONTEXT:
+  let contextPrompt = `INTERVIEW CONTEXT:
 Role Applied: ${context.role}
 Target Industry: ${context.industry}
 Session Duration: ${context.durationMin} minutes
@@ -116,8 +121,8 @@ CANDIDATE RESUME (authoritative source for questions):
 ${context.resumeText}
 `;
 
-    if (context.hasJD && context.jdText) {
-        contextPrompt += `
+  if (context.hasJD && context.jdText) {
+    contextPrompt += `
 JOB DESCRIPTION PROVIDED: Yes
 JD Text (authoritative):
 ${context.jdText}
@@ -126,14 +131,14 @@ Years Required for Role: ${context.jdYears || "Not specified"}
 
 IMPORTANT: Prioritize questions based on JD requirements, skills, and responsibilities.
 `;
-    } else {
-        contextPrompt += `
+  } else {
+    contextPrompt += `
 JOB DESCRIPTION PROVIDED: No
 (Focus questions purely on resume + role + industry)
 `;
-    }
+  }
 
-    return contextPrompt;
+  return contextPrompt;
 }
 
 // First question prompt
@@ -147,11 +152,11 @@ Remember: Be direct, professional, no pleasantries beyond a brief greeting.`;
 
 // Timer warning prompt
 export function buildTimerWarningPrompt(secondsRemaining: number): string {
-    if (secondsRemaining <= 120) {
-        return `[SYSTEM: Time remaining: ${Math.floor(secondsRemaining / 60)} minutes ${secondsRemaining % 60} seconds. END THE INTERVIEW NOW. Switch to evaluator mode and prepare the feedback report.]`;
-    }
-    if (secondsRemaining <= 300) {
-        return `[SYSTEM: Time remaining: ${Math.floor(secondsRemaining / 60)} minutes. Start wrapping up current topic. One more question maximum before switching to evaluator mode.]`;
-    }
-    return "";
+  if (secondsRemaining <= 120) {
+    return `[SYSTEM: Time remaining: ${Math.floor(secondsRemaining / 60)} minutes ${secondsRemaining % 60} seconds. END THE INTERVIEW NOW. Switch to evaluator mode and prepare the feedback report.]`;
+  }
+  if (secondsRemaining <= 300) {
+    return `[SYSTEM: Time remaining: ${Math.floor(secondsRemaining / 60)} minutes. Start wrapping up current topic. One more question maximum before switching to evaluator mode.]`;
+  }
+  return "";
 }

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { useOrg } from "../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import { getStudentPerformanceStats, getUserInterviews } from "@/lib/firebase/firestore";
 import type { StudentPerformanceStats, Interview } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -88,7 +88,7 @@ export default function StudentDashboardPage() {
                 />
                 <StatsCard
                     title="Average Score"
-                    value={stats?.averageScore !== null ? `${stats.averageScore}%` : "N/A"}
+                    value={stats && stats.averageScore != null ? `${stats.averageScore}%` : "N/A"}
                     icon={TrendingUp}
                 />
                 <Card className="bg-gradient-to-br from-primary to-blue-600 text-white">

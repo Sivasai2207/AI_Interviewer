@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useOrg } from "../../../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import {
     getUserProfile,
     getStudentPerformanceStats,
@@ -108,7 +108,7 @@ export default function StudentDetailPage() {
                 />
                 <StatsCard
                     title="Avg Score"
-                    value={stats?.averageScore !== null ? `${stats.averageScore}%` : "N/A"}
+                    value={stats && stats.averageScore != null ? `${stats.averageScore}%` : "N/A"}
                     icon={TrendingUp}
                 />
                 <Card>

@@ -11,6 +11,7 @@ import {
   Building2,
   LogOut,
   AlertCircle,
+  Mic,
 } from "lucide-react";
 
 interface InterviewHeaderProps {
@@ -39,6 +40,11 @@ const modeConfig = {
     variant: "destructive" as const,
     icon: Building2,
   },
+  voice: {
+    label: "Voice Mode",
+    variant: "default" as const,
+    icon: Mic,
+  },
 };
 
 export function InterviewHeader({
@@ -49,7 +55,15 @@ export function InterviewHeader({
   onEndInterview,
   onTimeWarning,
   onTimeUp,
-}: InterviewHeaderProps) {
+}: {
+    className?: string;
+    role: string;
+    mode: "fresher" | "intermediate" | "professional" | "voice";
+    industry: string;
+    onEndInterview: () => void;
+    onTimeWarning?: () => void;
+    onTimeUp?: () => void;
+}) {
   const modeInfo = modeConfig[mode];
   const ModeIcon = modeInfo.icon;
 

@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useOrg } from "../../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { createOrgUser, bulkCreateOrgStudents } from "@/lib/firebase/firestore";
 import { parseExcelFile, downloadTemplate } from "@/lib/excel";

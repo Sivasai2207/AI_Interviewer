@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { useOrg } from "../../layout";
+import { useOrg } from "@/components/providers/OrgContext";
 import { createInterview } from "@/lib/firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,10 +55,13 @@ export default function NewInterviewPage() {
                 status: "created",
                 roleApplied: formData.roleApplied,
                 targetIndustry: formData.targetIndustry,
-                yearsOfExperience: formData.yearsOfExperience,
-                jobDescription: formData.jobDescription,
+                jdYearsRequired: formData.yearsOfExperience.toString(),
+                jdText: formData.jobDescription,
+                hasJD: !!formData.jobDescription,
                 mode: "voice",
                 durationMin: 15,
+                resumeText: "",
+                endedEarly: false,
             });
 
             router.push(`/${orgSlug}/student/room/${interviewId}`);
