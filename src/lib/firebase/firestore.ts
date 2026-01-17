@@ -15,7 +15,7 @@ import {
     writeBatch,
     increment,
 } from "firebase/firestore";
-import { getAuth as getFirebaseAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { getAuth as getFirebaseAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from "firebase/auth";
 import { initializeApp, getApp, deleteApp } from "firebase/app";
 import { db, auth, isFirebaseConfigured, firebaseConfig } from "./config";
 import type {
@@ -96,6 +96,53 @@ export async function getPlatformAuditLogs(limitCount = 50): Promise<PlatformAud
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as PlatformAuditLog));
 }
+
+// =====================
+// Organization Change Logs
+// =====================
+export interface OrgChangeLog {
+    id: string;
+    orgId: string;
+    action: string;
+    actorId: string;
+    actorEmail: string;
+    actorName?: string;
+    actorRole?: string;
+    targetId?: string;
+    targetEmail?: string;
+    targetRole?: string;
+    details?: string;
+    changes?: { field: string; oldValue?: string; newValue?: string }[];
+    metadata?: Record<string, unknown>;
+    timestamp: any;
+}
+
+export async function logOrgChange(
+    orgId: string,
+    data: Omit<OrgChangeLog, "id" | "timestamp" | "orgId">
+): Promise<string> {
+    const docRef = await addDoc(collection(getDb(), "organizations", orgId, "changeLogs"), {
+        ...data,
+        orgId,
+        timestamp: serverTimestamp(),
+    });
+    return docRef.id;
+}
+
+export async function getOrgChangeLogs(orgId: string, limitCount = 100): Promise<OrgChangeLog[]> {
+    const q = query(
+        collection(getDb(), "organizations", orgId, "changeLogs"),
+        orderBy("timestamp", "desc"),
+        limit(limitCount)
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as OrgChangeLog));
+}
+
+export async function deleteOrgChangeLog(orgId: string, logId: string): Promise<void> {
+    await deleteDoc(doc(getDb(), "organizations", orgId, "changeLogs", logId));
+}
+
 
 // =====================
 // Organization Operations
@@ -377,26 +424,66 @@ export async function updateUserProfile(
     });
 }
 
+export async function suspendUser(uid: string): Promise<void> {
+    await updateUserProfile(uid, { status: "suspended" });
+}
+
+export async function reactivateUser(uid: string): Promise<void> {
+    await updateUserProfile(uid, { status: "active" });
+}
+
+export async function resetUserPassword(email: string, uid?: string): Promise<void> {
+    const auth = getFirebaseAuth(getApp());
+    await sendPasswordResetEmail(auth, email);
+
+    if (uid) {
+        // Flag that they should change it (though reset email flow handles this partially, 
+        // we might want our own flag for app logic)
+        await updateUserProfile(uid, { mustResetPassword: true });
+    }
+}
+
+export async function deleteOrgUser(orgId: string, uid: string, role: "student" | "staff"): Promise<void> {
+    const batch = writeBatch(getDb());
+
+    // Delete from users collection
+    const userRef = doc(getDb(), "users", uid);
+    batch.delete(userRef);
+
+    // Delete from org members subcollection
+    const memberRef = doc(getDb(), "organizations", orgId, "members", uid);
+    batch.delete(memberRef);
+
+    // Update org stats
+    const statField = role === "student" ? "studentCount" : "staffCount";
+    // We can't use helper here easily inside batch, so manual update
+    const orgRef = doc(getDb(), "organizations", orgId);
+    batch.update(orgRef, {
+        [`stats.${statField}`]: increment(-1),
+        updatedAt: serverTimestamp(),
+    });
+
+    await batch.commit();
+}
+
 // =====================
 // Org User Management
 // =====================
 export async function getOrgMembers(
     orgId: string,
-    role?: "super_admin" | "staff" | "student"
+    role?: "super_admin" | "admin" | "staff" | "student"
 ): Promise<UserProfile[]> {
     let q;
     if (role) {
         q = query(
             collection(getDb(), "users"),
             where("orgId", "==", orgId),
-            where("role", "==", role),
-            orderBy("displayName", "asc")
+            where("role", "==", role)
         );
     } else {
         q = query(
             collection(getDb(), "users"),
-            where("orgId", "==", orgId),
-            orderBy("displayName", "asc")
+            where("orgId", "==", orgId)
         );
     }
     const querySnapshot = await getDocs(q);
@@ -407,9 +494,20 @@ export async function getOrgStudents(orgId: string): Promise<UserProfile[]> {
     return getOrgMembers(orgId, "student");
 }
 
+// Get only faculty (staff role, excludes admins)
+export async function getOrgFaculty(orgId: string): Promise<UserProfile[]> {
+    return getOrgMembers(orgId, "staff");
+}
+
+// Alias for backwards compatibility
 export async function getOrgStaff(orgId: string): Promise<UserProfile[]> {
+    return getOrgFaculty(orgId);
+}
+
+// Get admins (super_admin and admin roles)
+export async function getOrgAdmins(orgId: string): Promise<UserProfile[]> {
     const members = await getOrgMembers(orgId);
-    return members.filter((m) => m.role === "staff" || m.role === "super_admin");
+    return members.filter((m) => m.role === "super_admin" || m.role === "admin");
 }
 
 export async function searchOrgStudents(
@@ -431,7 +529,7 @@ export async function createOrgUser(
     data: {
         name: string;
         email: string;
-        role: "super_admin" | "staff" | "student";
+        role: "super_admin" | "admin" | "staff" | "student";
         registrationNumber?: string;
         department?: string;
         password?: string;
@@ -450,9 +548,11 @@ export async function createOrgUser(
 
         let uid: string;
 
-        // If password is provided, create a Firebase Auth account using a secondary app
-        // This prevents logging out the current user (Platform Owner)
-        if (data.password && data.password.length >= 6) {
+        // If password is provided, validation is needed. 
+        // For bulk create (students), if no password is provided, use registrationNumber as initial password
+        const initialPassword = data.password || (data.registrationNumber ? data.registrationNumber : null);
+
+        if (initialPassword && initialPassword.length >= 6) {
             try {
                 console.log(`[Firestore] Creating Firebase Auth account for ${data.email}`);
 
@@ -471,7 +571,7 @@ export async function createOrgUser(
                     const userCredential = await createUserWithEmailAndPassword(
                         secondaryAuth,
                         data.email,
-                        data.password
+                        initialPassword
                     );
                     uid = userCredential.user.uid;
                     console.log(`[Firestore] Firebase Auth account created with UID: ${uid}`);
@@ -510,10 +610,10 @@ export async function createOrgUser(
                 };
             }
         } else {
-            // No password provided - generate a temporary UID for Firestore-only profile
-            // This is for bulk imports where users will need to reset password
+            // No valid password source - generate a temporary UID for Firestore-only profile
+            // This is fallback, ideally we should enforce password creation
             uid = `student_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            console.log(`[Firestore] No password provided. Created Firestore-only profile with temp UID: ${uid}`);
+            console.log(`[Firestore] No password provided & no regNo. Created Firestore-only profile with temp UID: ${uid}`);
         }
 
         // Create user profile in Firestore
@@ -534,6 +634,8 @@ export async function createOrgUser(
             orgId,
             registrationNumber: data.registrationNumber,
             department: data.department,
+            status: "active",
+            mustResetPassword: true,
             createdBy: createdByUid,
             settings: {},
             apiKeyStatus: "unknown",
@@ -590,6 +692,56 @@ export async function bulkCreateOrgStudents(
             result.errors.push({
                 row: i + 1,
                 email: student.email,
+                error: createResult.error || "Unknown error",
+            });
+        }
+    }
+
+    result.success = result.failed === 0;
+    return result;
+}
+
+export async function bulkCreateOrgFaculty(
+    orgId: string,
+    faculty: import("@/types").FacultyUploadRow[],
+    createdByUid: string
+): Promise<BulkUploadResult> {
+    const result: BulkUploadResult = {
+        success: true,
+        created: 0,
+        failed: 0,
+        errors: [],
+    };
+
+    for (let i = 0; i < faculty.length; i++) {
+        const member = faculty[i];
+        const createResult = await createOrgUser(
+            orgId,
+            {
+                name: member.name,
+                email: member.email,
+                role: "staff",
+                department: member.department,
+                // Using phone number as temporary password if valid (>=6 chars)
+                // Otherwise they will need a manual reset or we fallback
+                password: member.phoneNumber.replace(/\D/g, ''),
+            },
+            createdByUid
+        );
+
+        if (createResult.success) {
+            // Update phone number separately if needed or add to createOrgUser data
+            // Since createOrgUser doesn't accept phone number yet in the data arg (only UserProfile has it)
+            // we should probably update createOrgUser signature or do an update after
+            if (createResult.uid) {
+                await updateUserProfile(createResult.uid, { phoneNumber: member.phoneNumber });
+            }
+            result.created++;
+        } else {
+            result.failed++;
+            result.errors.push({
+                row: i + 1,
+                email: member.email,
                 error: createResult.error || "Unknown error",
             });
         }

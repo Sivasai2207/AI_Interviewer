@@ -4,10 +4,10 @@ import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useOrg } from "@/components/providers/OrgContext";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { getOrgStudents, suspendUser, reactivateUser } from "@/lib/firebase/firestore";
+import { getOrgFaculty, suspendUser, reactivateUser } from "@/lib/firebase/firestore";
 import type { UserProfile } from "@/types";
 import { DEPARTMENTS } from "@/types";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -27,9 +27,8 @@ import {
     Power,
     ChevronLeft,
     ChevronRight,
-    Filter,
     Eye,
-    MoreHorizontal,
+    GraduationCap,
     CheckCircle2,
     XCircle,
     AlertTriangle
@@ -38,12 +37,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100];
 
-export default function OrgStudentsPage() {
+export default function OrgFacultyPage() {
     const { orgId, orgSlug } = useOrg();
-    const { user, role } = useAuth();
+    const { user, role: platformRole } = useAuth();
     
     // Data State
-    const [students, setStudents] = useState<UserProfile[]>([]);
+    const [faculty, setFaculty] = useState<UserProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     
     // UI State
@@ -61,58 +60,58 @@ export default function OrgStudentsPage() {
     
     // Confirmation Dialog State
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-    const [studentToDelete, setStudentToDelete] = useState<UserProfile | null>(null); // For single delete
+    const [memberToDelete, setMemberToDelete] = useState<UserProfile | null>(null);
 
     useEffect(() => {
         if (orgId) {
-            loadStudents();
+            loadFaculty();
         }
     }, [orgId]);
 
-    const loadStudents = async () => {
+    const loadFaculty = async () => {
         setIsLoading(true);
         try {
-            const data = await getOrgStudents(orgId!);
+            const data = await getOrgFaculty(orgId!);
             data.sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
-            setStudents(data);
+            setFaculty(data);
         } catch (error) {
-            console.error("Error loading students:", error);
+            console.error("Error loading faculty:", error);
         } finally {
             setIsLoading(false);
         }
     };
 
     // Filter Logic
-    const filteredStudents = useMemo(() => {
-        let result = students;
+    const filteredFaculty = useMemo(() => {
+        let result = faculty;
         
         if (departmentFilter && departmentFilter !== "all") {
-            result = result.filter(s => s.department === departmentFilter);
+            result = result.filter(f => f.department === departmentFilter);
         }
 
         if (statusFilter !== "all") {
-            if (statusFilter === "active") result = result.filter(s => s.status !== "suspended");
-            if (statusFilter === "suspended") result = result.filter(s => s.status === "suspended");
+            if (statusFilter === "active") result = result.filter(f => f.status !== "suspended");
+            if (statusFilter === "suspended") result = result.filter(f => f.status === "suspended");
         }
         
         if (searchTerm.trim()) {
             const term = searchTerm.toLowerCase();
-            result = result.filter(s =>
-                s.displayName?.toLowerCase().includes(term) ||
-                s.email?.toLowerCase().includes(term) ||
-                s.registrationNumber?.toLowerCase().includes(term)
+            result = result.filter(f =>
+                f.displayName?.toLowerCase().includes(term) ||
+                f.email?.toLowerCase().includes(term) ||
+                f.phoneNumber?.toLowerCase().includes(term)
             );
         }
         
         return result;
-    }, [students, departmentFilter, statusFilter, searchTerm]);
+    }, [faculty, departmentFilter, statusFilter, searchTerm]);
 
     // Pagination Logic
-    const totalPages = Math.ceil(filteredStudents.length / pageSize);
-    const paginatedStudents = useMemo(() => {
+    const totalPages = Math.ceil(filteredFaculty.length / pageSize);
+    const paginatedFaculty = useMemo(() => {
         const start = (currentPage - 1) * pageSize;
-        return filteredStudents.slice(start, start + pageSize);
-    }, [filteredStudents, currentPage, pageSize]);
+        return filteredFaculty.slice(start, start + pageSize);
+    }, [filteredFaculty, currentPage, pageSize]);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -120,10 +119,10 @@ export default function OrgStudentsPage() {
 
     // Selection Handlers
     const toggleSelectAll = () => {
-        if (selectedIds.size === filteredStudents.length && filteredStudents.length > 0) {
+        if (selectedIds.size === filteredFaculty.length && filteredFaculty.length > 0) {
             setSelectedIds(new Set());
         } else {
-            setSelectedIds(new Set(filteredStudents.map(s => s.id)));
+            setSelectedIds(new Set(filteredFaculty.map(f => f.id)));
         }
     };
 
@@ -138,13 +137,13 @@ export default function OrgStudentsPage() {
     };
 
     // Action Handlers
-    const handleDeleteClick = (student: UserProfile) => {
-        setStudentToDelete(student);
+    const handleDeleteClick = (member: UserProfile) => {
+        setMemberToDelete(member);
         setDeleteConfirmOpen(true);
     };
 
     const handleBulkDeleteClick = () => {
-        setStudentToDelete(null); // Indicates bulk mode
+        setMemberToDelete(null);
         setDeleteConfirmOpen(true);
     };
 
@@ -152,14 +151,10 @@ export default function OrgStudentsPage() {
         if (!user || !orgId) return;
         setIsDeleting(true);
 
-        const idsToDelete = studentToDelete ? [studentToDelete.id] : Array.from(selectedIds);
-        const description = studentToDelete ? "Student deleted" : `${idsToDelete.length} students deleted`;
+        const idsToDelete = memberToDelete ? [memberToDelete.id] : Array.from(selectedIds);
+        const description = memberToDelete ? "Faculty member deleted" : `${idsToDelete.length} faculty members deleted`;
 
         try {
-            // Process deletions in parallel (chunked if specific limit needed, but API handles concurrent requests okay for small numbers)
-            // Ideally, we'd send a bulk delete request, but our API is currently single user.
-            // We'll iterate.
-            
             const results = await Promise.allSettled(idsToDelete.map(uid => 
                 fetch("/api/admin/delete-user", {
                     method: "POST",
@@ -167,12 +162,12 @@ export default function OrgStudentsPage() {
                     body: JSON.stringify({ 
                         uid, 
                         orgId, 
-                        role: "student",
+                        role: "staff",
                         actor: {
                             uid: user.uid,
                             name: user.displayName,
                             email: user.email,
-                            role: role || "unknown"
+                            role: platformRole || "staff"
                         }
                     }),
                 }).then(res => {
@@ -187,15 +182,13 @@ export default function OrgStudentsPage() {
                 console.error("Some deletions failed", failures);
                 alert(`Completed with ${failures.length} errors. Please refresh.`);
             } else {
-                 // Success UI
-                 // Use a simple alert for now as requested "show that conformation"
                  alert(`${description} successfully.`);
             }
 
             setSelectedIds(new Set());
             setDeleteConfirmOpen(false);
-            setStudentToDelete(null);
-            loadStudents();
+            setMemberToDelete(null);
+            loadFaculty();
 
         } catch (error) {
             console.error("Delete error:", error);
@@ -205,25 +198,27 @@ export default function OrgStudentsPage() {
         }
     };
 
-    const handleToggleStatus = async (student: UserProfile) => {
-         const action = student.status === "suspended" ? "reactivate" : "suspend";
-         // Simple confirm for status toggle
-         if (!confirm(`${action === "suspend" ? "Suspend" : "Reactivate"} ${student.displayName}?`)) return;
+    const handleToggleStatus = async (member: UserProfile) => {
+         const action = member.status === "suspended" ? "reactivate" : "suspend";
+         if (!confirm(`${action === "suspend" ? "Suspend" : "Reactivate"} ${member.displayName}?`)) return;
 
          try {
-             if (action === "suspend") await suspendUser(student.id);
-             else await reactivateUser(student.id);
-             loadStudents();
+             if (action === "suspend") await suspendUser(member.id);
+             else await reactivateUser(member.id);
+             loadFaculty();
          } catch(e) {
              console.error(e);
              alert("Failed to update status");
          }
     };
 
+    // Permissions
+    const canManage = platformRole === "super_admin" || platformRole === "admin";
+
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
-            {/* Confirmation Dialog */}
-            <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+             {/* Confirmation Dialog */}
+             <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2 text-destructive">
@@ -231,12 +226,11 @@ export default function OrgStudentsPage() {
                             Confirm Deletion
                         </DialogTitle>
                         <DialogDescription>
-                            {studentToDelete 
-                                ? `Are you sure you want to permanently delete ${studentToDelete.displayName}?` 
-                                : `Are you sure you want to delete ${selectedIds.size} selected students?`}
+                            {memberToDelete 
+                                ? `Are you sure you want to permanently delete ${memberToDelete.displayName}?` 
+                                : `Are you sure you want to delete ${selectedIds.size} selected faculty members?`}
                             <br/><br/>
                             <span className="font-semibold text-destructive">This action cannot be undone.</span> 
-                            User data and authentication access will be removed immediately.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
@@ -253,14 +247,14 @@ export default function OrgStudentsPage() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
-                        Students
+                        Faculty
                     </h1>
                     <p className="text-muted-foreground mt-1">
-                        Manage student directory, track performance, and control access.
+                        Manage academic staff and faculty members.
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
-                     {selectedIds.size > 0 && (role === "admin" || role === "super_admin") && (
+                     {selectedIds.size > 0 && canManage && (
                         <Button variant="destructive" onClick={handleBulkDeleteClick} className="shadow-red-500/20 shadow-lg">
                             <Trash2 className="mr-2 h-4 w-4" />
                             Delete ({selectedIds.size})
@@ -269,7 +263,7 @@ export default function OrgStudentsPage() {
                     <Link href={`/${orgSlug}/admin/register`}>
                         <Button className="btn-premium shadow-primary/20 shadow-lg" size="lg">
                             <UserPlus className="mr-2 h-5 w-5" />
-                            Add Students
+                            Add Faculty
                         </Button>
                     </Link>
                 </div>
@@ -277,14 +271,14 @@ export default function OrgStudentsPage() {
 
             {/* Stats Cards */}
             <div className="grid gap-6 md:grid-cols-3">
-                <Card className="border-none shadow-md bg-gradient-to-br from-blue-50 to-white">
+                <Card className="border-none shadow-md bg-gradient-to-br from-purple-50 to-white">
                     <CardContent className="flex items-center gap-6 p-6">
-                        <div className="h-14 w-14 rounded-2xl bg-blue-500/10 flex items-center justify-center shadow-inner">
-                            <Users className="h-7 w-7 text-blue-600" />
+                        <div className="h-14 w-14 rounded-2xl bg-purple-500/10 flex items-center justify-center shadow-inner">
+                            <GraduationCap className="h-7 w-7 text-purple-600" />
                         </div>
                         <div>
-                            <p className="text-4xl font-bold text-gray-900">{students.length}</p>
-                            <p className="text-sm font-medium text-blue-600/80 uppercase tracking-wide">Total Students</p>
+                            <p className="text-4xl font-bold text-gray-900">{faculty.length}</p>
+                            <p className="text-sm font-medium text-purple-600/80 uppercase tracking-wide">Total Faculty</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -294,8 +288,8 @@ export default function OrgStudentsPage() {
                             <CheckCircle2 className="h-7 w-7 text-green-600" />
                         </div>
                         <div>
-                            <p className="text-4xl font-bold text-gray-900">{students.filter(s => s.status !== "suspended").length}</p>
-                            <p className="text-sm font-medium text-green-600/80 uppercase tracking-wide">Active Accounts</p>
+                            <p className="text-4xl font-bold text-gray-900">{faculty.filter(f => f.status !== "suspended").length}</p>
+                            <p className="text-sm font-medium text-green-600/80 uppercase tracking-wide">Active</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -305,7 +299,7 @@ export default function OrgStudentsPage() {
                             <XCircle className="h-7 w-7 text-red-600" />
                         </div>
                         <div>
-                            <p className="text-4xl font-bold text-gray-900">{students.filter(s => s.status === "suspended").length}</p>
+                            <p className="text-4xl font-bold text-gray-900">{faculty.filter(f => f.status === "suspended").length}</p>
                             <p className="text-sm font-medium text-red-600/80 uppercase tracking-wide">Suspended</p>
                         </div>
                     </CardContent>
@@ -319,7 +313,7 @@ export default function OrgStudentsPage() {
                         <div className="relative flex-1 w-full">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                             <Input
-                                placeholder="Search by name, email, or ID..."
+                                placeholder="Search by name, email, or phone..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 className="pl-11 h-12 text-lg bg-muted/30 border-muted-foreground/20"
@@ -350,12 +344,12 @@ export default function OrgStudentsPage() {
                 </CardContent>
             </Card>
 
-            {/* Main List */}
-            <Card className="border-none shadow-xl overflow-hidden">
+            {/* Faculty List */}
+             <Card className="border-none shadow-xl overflow-hidden">
                 <div className="bg-muted/30 p-4 border-b flex items-center justify-between">
                      <div className="flex items-center gap-3">
                         <Checkbox 
-                            checked={selectedIds.size === filteredStudents.length && filteredStudents.length > 0}
+                            checked={selectedIds.size === filteredFaculty.length && filteredFaculty.length > 0}
                             onCheckedChange={toggleSelectAll}
                             aria-label="Select all"
                         />
@@ -381,37 +375,37 @@ export default function OrgStudentsPage() {
                          <div className="flex min-h-[400px] items-center justify-center">
                             <Loader2 className="h-10 w-10 animate-spin text-primary/50" />
                         </div>
-                    ) : filteredStudents.length === 0 ? (
+                    ) : filteredFaculty.length === 0 ? (
                         <div className="py-20 text-center">
                              <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-muted mb-6">
-                                <Users className="h-10 w-10 text-muted-foreground/50" />
+                                <GraduationCap className="h-10 w-10 text-muted-foreground/50" />
                              </div>
-                             <h3 className="text-xl font-semibold">No students found</h3>
+                             <h3 className="text-xl font-semibold">No faculty found</h3>
                              <p className="text-muted-foreground mt-2 max-w-sm mx-auto">
-                                 Try adjusting your search or filters, or add new students to build your directory.
+                                 Try adjusting your search or filters.
                              </p>
                         </div>
                     ) : (
-                        paginatedStudents.map((student) => (
-                            <div key={student.id} className={`p-4 flex flex-col md:flex-row md:items-center gap-4 hover:bg-muted/30 transition-colors ${selectedIds.has(student.id) ? "bg-primary/5" : ""}`}>
+                        paginatedFaculty.map((member) => (
+                            <div key={member.id} className={`p-4 flex flex-col md:flex-row md:items-center gap-4 hover:bg-muted/30 transition-colors ${selectedIds.has(member.id) ? "bg-primary/5" : ""}`}>
                                 <Checkbox 
-                                    checked={selectedIds.has(student.id)}
-                                    onCheckedChange={() => toggleSelectOne(student.id)}
+                                    checked={selectedIds.has(member.id)}
+                                    onCheckedChange={() => toggleSelectOne(member.id)}
                                 />
                                 
                                 <div className="flex-1 flex items-center gap-4">
                                      <div className={`h-12 w-12 rounded-full flex items-center justify-center text-lg font-bold shadow-sm ${
-                                        student.status === "suspended" 
+                                        member.status === "suspended" 
                                             ? "bg-red-100 text-red-600" 
-                                            : "bg-gradient-to-br from-primary to-purple-600 text-white"
+                                            : "bg-gradient-to-br from-purple-600 to-primary text-white"
                                      }`}>
-                                         {student.displayName?.[0]?.toUpperCase() || "?"}
+                                         {member.displayName?.[0]?.toUpperCase() || "?"}
                                      </div>
                                      <div>
-                                         <h4 className="font-semibold text-gray-900">{student.displayName}</h4>
+                                         <h4 className="font-semibold text-gray-900">{member.displayName}</h4>
                                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                             <span>{student.email}</span>
-                                             {student.status === "suspended" && (
+                                             <span>{member.email}</span>
+                                             {member.status === "suspended" && (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
                                                     Suspended
                                                 </span>
@@ -422,12 +416,13 @@ export default function OrgStudentsPage() {
 
                                 <div className="flex items-center justify-between md:justify-end gap-8 md:w-1/3">
                                     <div className="hidden md:block text-right">
-                                        <p className="font-medium text-sm">{student.department || "No Dept"}</p>
-                                        <p className="text-xs text-muted-foreground font-mono">{student.registrationNumber}</p>
+                                        <p className="font-medium text-sm">{member.department || "No Dept"}</p>
+                                        <p className="text-xs text-muted-foreground font-mono">{member.phoneNumber || "No phone"}</p>
                                     </div>
                                     
                                     <div className="flex items-center gap-1">
-                                        <Link href={`/${orgSlug}/admin/students/${student.id}`}>
+                                        {/* View Details Link if page exists, otherwise just Edit logic? Assuming page exists */}
+                                        <Link href={`/${orgSlug}/admin/faculty/${member.id}`}>
                                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-primary">
                                                 <Eye className="h-4 w-4" />
                                             </Button>
@@ -436,18 +431,18 @@ export default function OrgStudentsPage() {
                                         <Button 
                                             variant="ghost" 
                                             size="sm" 
-                                            className={`h-8 w-8 p-0 ${student.status === "suspended" ? "text-green-600 hover:text-green-700 hover:bg-green-50" : "text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50"}`}
-                                            onClick={() => handleToggleStatus(student)}
+                                            className={`h-8 w-8 p-0 ${member.status === "suspended" ? "text-green-600 hover:text-green-700 hover:bg-green-50" : "text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50"}`}
+                                            onClick={() => handleToggleStatus(member)}
                                         >
                                             <Power className="h-4 w-4" />
                                         </Button>
 
-                                        {(role === "super_admin" || role === "admin") && (
+                                        {canManage && (
                                             <Button 
                                                 variant="ghost" 
                                                 size="sm" 
                                                 className="h-8 w-8 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
-                                                onClick={() => handleDeleteClick(student)}
+                                                onClick={() => handleDeleteClick(member)}
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>

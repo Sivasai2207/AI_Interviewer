@@ -72,7 +72,6 @@ export default function PlatformAdminLoginPage() {
                 // Check if they're trying to set up
                 if (showSetup && setupKey === PLATFORM_SETUP_KEY) {
                     await createPlatformAdmin(loggedInUser.uid, {
-                        uid: loggedInUser.uid,
                         email: loggedInUser.email || "",
                         displayName: loggedInUser.displayName || setupName || "Platform Owner",
                         role: "platform_owner",
@@ -114,7 +113,6 @@ export default function PlatformAdminLoginPage() {
             const loggedInUser = await signUp(email, password, setupName);
             
             await createPlatformAdmin(loggedInUser.uid, {
-                uid: loggedInUser.uid,
                 email: loggedInUser.email || email,
                 displayName: setupName || "Platform Owner",
                 role: "platform_owner",

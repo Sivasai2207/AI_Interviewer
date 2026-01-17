@@ -4,19 +4,58 @@ import { Timestamp } from "firebase/firestore";
 // Role Types (3-Tier)
 // =====================
 export type PlatformRole = "platform_owner";
-export type OrgRole = "super_admin" | "staff" | "student";
+export type OrgRole = "super_admin" | "admin" | "staff" | "student";
 export type UserRole = PlatformRole | OrgRole;
 
 // =====================
 // Platform Types
 // =====================
 export interface PlatformAdmin {
-    uid: string;
     email: string;
     displayName: string;
     role: "platform_owner";
     status: "active" | "disabled";
     createdAt: Timestamp;
+}
+
+// =====================
+// Constants
+// =====================
+export const DEPARTMENTS = [
+    "CSE",
+    "BIO TECH",
+    "Mechanical Engineering",
+    "EEE",
+] as const;
+
+export type Department = typeof DEPARTMENTS[number];
+
+// =====================
+// Bulk Upload Types
+// =====================
+export interface BulkUploadRow {
+    name: string;
+    email: string;
+    registrationNumber: string;
+    department?: string;
+}
+
+export interface FacultyUploadRow {
+    name: string;
+    email: string;
+    phoneNumber: string;
+    department: string;
+}
+
+export interface BulkUploadResult {
+    success: boolean;
+    created: number;
+    failed: number;
+    errors: {
+        row: number;
+        email: string;
+        error: string;
+    }[];
 }
 
 export interface PlatformAuditLog {
@@ -110,6 +149,9 @@ export interface UserProfile {
     orgId: string;
     registrationNumber?: string;
     department?: string;
+    phoneNumber?: string;
+    status: "active" | "suspended";
+    mustResetPassword: boolean;
     createdBy?: string;
     createdAt: Timestamp;
     updatedAt: Timestamp;
