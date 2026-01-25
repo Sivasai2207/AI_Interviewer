@@ -28,6 +28,10 @@ if (!admin.apps.length) {
                 });
             }
         } else if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+            console.log("[Firebase Admin] Detected individual env vars");
+            console.log("[Firebase Admin] Email length:", process.env.FIREBASE_CLIENT_EMAIL.length);
+            console.log("[Firebase Admin] Key length:", process.env.FIREBASE_PRIVATE_KEY.length);
+
             // Use individual environment variables (easier for Vercel)
             const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
 
