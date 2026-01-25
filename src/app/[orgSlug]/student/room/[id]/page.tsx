@@ -34,6 +34,9 @@ import { Timestamp } from "firebase/firestore";
 import type { Interview, InterviewContext, InterviewPolicy } from "@/types";
 import type { AudioRecorder } from "@/lib/audio/recorder";
 import type { AudioPlayer } from "@/lib/audio/player";
+import type { TurnManager } from "@/lib/audio/turnManager";
+import type { TranscriptManager } from "@/lib/audio/transcriptManager";
+import type { InterviewTurnController } from "@/lib/audio/interviewTurnController";
 import { cn } from "@/lib/utils";
 import type { GeminiLiveClient } from "@/lib/gemini/live-client";
 
@@ -126,6 +129,12 @@ export default function InterviewRoomPage() {
     const introPlayedRef = useRef(false); // Ref for immediate access in callbacks
     const currentAiTextRef = useRef(""); // To accumulate streaming AI text
     const currentUserTextRef = useRef(""); // To accumulate streaming User text
+    const micCooldownRef = useRef<NodeJS.Timeout | null>(null); // Separate timer for mic cooldown
+    
+    // Production Interview Architecture
+    const turnManagerRef = useRef<TurnManager | null>(null);
+    const transcriptManagerRef = useRef<TranscriptManager | null>(null);
+    const turnControllerRef = useRef<InterviewTurnController | null>(null);
 
     const policy = organization?.interviewPolicy || DEFAULT_POLICY;
 
@@ -164,6 +173,7 @@ export default function InterviewRoomPage() {
         }
         if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
         if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+        if (micCooldownRef.current) clearTimeout(micCooldownRef.current);
     };
 
     const loadInterview = async () => {
@@ -309,9 +319,11 @@ export default function InterviewRoomPage() {
                 systemInstruction,
                 voiceName: "Kore",
                 onInterrupted: () => {
-                     console.log("[Room] Interruption detected - clearing audio queue");
+                     console.log("[Room] Interruption detected - transitioning to LISTENING");
                      playerRef.current?.clear();
                      setIsSpeaking(false);
+                     // Transition to LISTENING immediately on interruption
+                     turnControllerRef.current?.onInterrupted();
                 },
                 onReady: async () => {
                     console.log("[Room] ✓ Gemini ready callback received");
@@ -319,36 +331,160 @@ export default function InterviewRoomPage() {
                     setConnectionState("READY");
                     setRecording(true);
                     
-                    // Start Audio Capture
-                    if (!recorderRef.current) {
-                        recorderRef.current = new AudioRecorder((data: string) => {
-                            if (geminiClientRef.current?.connected && isMicOn) {
-                                geminiClientRef.current.sendAudio(data);
-                                resetWatchdog();
+                    // Import production modules
+                    const { TurnManager } = await import("@/lib/audio/turnManager");
+                    const { TranscriptManager } = await import("@/lib/audio/transcriptManager");
+                    
+                    // Initialize Transcript Manager
+                    transcriptManagerRef.current = new TranscriptManager(
+                        {
+                            resumeText: effectiveResumeText,
+                            targetRole: primaryRole,
+                            experienceYears: experienceYears || 0,
+                        },
+                        (userText) => {
+                            // Live user transcript update (optional UI)
+                            currentUserTextRef.current = userText;
+                        },
+                        (aiText) => {
+                            // Live AI transcript update (optional UI)
+                            currentAiTextRef.current = aiText;
+                        }
+                    );
+                    
+                    // Initialize Interview Turn Controller (Half-Duplex State Machine)
+                    const { InterviewTurnController } = await import("@/lib/audio/interviewTurnController");
+                    turnControllerRef.current = new InterviewTurnController({
+                        onStateChange: (state, prevState) => {
+                            console.log(`[Room] TurnController: ${prevState} → ${state}`);
+                        },
+                        onUserFinalText: (cleanText) => {
+                            console.log(`[Room] Final user answer: ${cleanText.length} chars`);
+                        },
+                        onReadyToListen: () => {
+                            console.log("[Room] Ready to listen - mic enabled");
+                        }
+                    });
+                    turnControllerRef.current.setGeminiClient(geminiClientRef.current);
+                    
+                    // Initialize Turn Manager with CheatingDaddy-style fast response config
+                    turnManagerRef.current = new TurnManager({
+                        speechStartMs: 150,       // 150ms to confirm speech (faster)
+                        pauseToleranceMs: 1500,   // 1.5s pause tolerance (human pause)
+                        hardEndMs: 4000,          // Force commit after 4s silence
+                        minSpeechMs: 800,         // Minimum 800ms before allowing commit (faster)
+                        onStateChange: (state, prevState) => {
+                            console.log(`[Room] TurnManager: ${prevState} → ${state}`);
+                        },
+                        onTurnCommit: (totalSpeechMs) => {
+                            console.log(`[Room] TurnManager: Committing turn (${totalSpeechMs}ms speech)`);
+                            
+                            // CRITICAL: End the audio activity to tell Gemini the user finished speaking
+                            if (geminiClientRef.current?.connected && geminiClientRef.current?.activityActive) {
+                                console.log("[Room] Sending activityEnd (Turn Manager commit)");
+                                geminiClientRef.current.sendActivityEnd();
                             }
-                        }, (vol: number) => {
-                            setVolume(vol); // Update volume state
-                        });
+                            
+                            // Get cleaned transcript and commit via Turn Controller
+                            const cleanText = transcriptManagerRef.current?.getCleanedUserText() || "";
+                            
+                            if (cleanText && turnControllerRef.current) {
+                                // Commit user answer via controller (sends committed text turn)
+                                turnControllerRef.current.commitUserAnswer(cleanText);
+                                
+                                // Log to transcript store
+                                addToTranscript({
+                                    speaker: "candidate",
+                                    text: cleanText,
+                                    sequenceNumber: Date.now(),
+                                });
+                                
+                                // Persist to Firestore
+                                addTranscriptChunk(orgId!, interviewId, {
+                                    speaker: "candidate",
+                                    text: cleanText,
+                                    sequenceNumber: Date.now(),
+                                }).catch(e => console.error("[Room] Failed to log user transcript:", e));
+                                
+                                // Reset transcript accumulator
+                                transcriptManagerRef.current?.commitUserTurn();
+                            }
+                        }
+                    });
+                    
+                    // Start Audio Capture with Production Architecture
+                    if (!recorderRef.current) {
+                        recorderRef.current = new AudioRecorder(
+                            // onDataAvailable: 20ms audio frames (Pipeline A - always streaming)
+                            (data: string) => {
+                                // Block mic input when not in LISTENING state (half-duplex)
+                                if (!turnControllerRef.current?.shouldForwardMic()) return;
+                                
+                                // Always stream audio for presence/low-latency
+                                if (geminiClientRef.current?.connected && isMicOn) {
+                                    // Only send when activity is active
+                                    if (geminiClientRef.current.activityActive) {
+                                        geminiClientRef.current.sendAudioFrame(data);
+                                    }
+                                    resetWatchdog();
+                                }
+                            },
+                            // onVolume
+                            (vol: number) => {
+                                if (turnControllerRef.current?.shouldForwardMic()) {
+                                    setVolume(vol);
+                                }
+                            },
+                            // onVadStart: User started speaking
+                            () => {
+                                if (!turnControllerRef.current?.shouldForwardMic()) return;
+                                
+                                console.log("[Room] VAD: User started speaking");
+                                if (geminiClientRef.current?.connected && isMicOn) {
+                                    geminiClientRef.current.sendActivityStart();
+                                    playerRef.current?.clear();
+                                    setIsSpeaking(false);
+                                    resetWatchdog();
+                                }
+                            },
+                            // onVadEnd: VAD detected silence (handled by Turn Manager)
+                            () => {
+                                // Let Turn Manager handle the pause-tolerant logic
+                                // Don't immediately end activity - wait for Turn Manager commit
+                                console.log("[Room] VAD: Silence detected (Turn Manager will handle)");
+                            },
+                            // VAD config (CheatingDaddy-style fast response)
+                            {
+                                speechOnThreshold: 0.012,   // Lower threshold for faster detection
+                                speechOffThreshold: 0.008,  // Lower off threshold
+                                endSilenceMs: 1500,         // 1.5s silence = end (matches TurnManager)
+                                minSpeechMs: 150,           // 150ms confirms real speech
+                            },
+                            // onSpeechFrame: Feed to Turn Manager (Pipeline B)
+                            (isSpeaking: boolean, rms: number) => {
+                                if (!turnControllerRef.current?.shouldForwardMic()) return;
+                                
+                                // Feed to Turn Manager for pause-tolerant detection
+                                turnManagerRef.current?.processVadFrame(isSpeaking, 20);
+                            }
+                        );
                     }
                     await recorderRef.current.start();
-                    console.log("[Room] ✓ Audio capture started");
+                    console.log("[Room] ✓ Audio capture started with production architecture");
                     
-                    // 🎤 Send intro kick with personalized greeting
+                    // 🎤 Send kickoff for reliable greeting (only once)
                     if (!introPlayedRef.current) {
-                        const introDirective = `[SYSTEM] Start the interview now. 
-Greeting: Greet ${candidateName} professionally.
-Role: Tech Interviewer for ${primaryRole} (${experienceYears} yrs exp).
-First Question: Ask one specific technical question based on their resume.
-Tone: Concise, technical, and natural.`;
-
-                        console.log("[Room] Triggering Tess greeting for:", candidateName);
+                        console.log("[Room] Sending kickoff for:", candidateName);
                         setIsSpeaking(true);
-                        geminiClientRef.current?.sendIntroKick(introDirective);
+                        geminiClientRef.current?.sendKickoff(candidateName, primaryRole, experienceYears);
                     } else {
-                        console.log("[Room] Intro already played, skipping kick");
+                        console.log("[Room] Intro already played, skipping kickoff");
                     }
                 },
                 onAudio: (audioData: string) => {
+                    // Mark model as talking via turn controller
+                    turnControllerRef.current?.setModelSpeaking();
+                    
                     playerRef.current?.playChunk(audioData);
                     resetWatchdog();
                     
@@ -365,16 +501,9 @@ Tone: Concise, technical, and natural.`;
                     }
                     
                     // Connection is effectively streaming now
-                    // We can safely cast here or check against known states
                     setConnectionState("STREAMING");
                     
                     setIsSpeaking(true);
-                    
-                    // Reset speaking state after audio stops (debounced)
-                    if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
-                    silenceTimeoutRef.current = setTimeout(() => {
-                        setIsSpeaking(false);
-                    }, 1000);
                 },
                 onVolume: (vol: number) => {
                      setAiVolume(vol);
@@ -382,21 +511,21 @@ Tone: Concise, technical, and natural.`;
                 onUserText: (text: string) => {
                     console.log("[Room] User transcription (streaming):", text);
                     currentUserTextRef.current = text;
-                    // You could update a "live" transcript entry here if desired
+                    // Feed to Transcript Manager for accumulation
+                    transcriptManagerRef.current?.appendUserText(text);
                 },
                 onText: (text: string) => {
                     console.log("[Room] AI transcription (streaming):", text);
                     currentAiTextRef.current = text;
-                    
-                    // Update local store with progressive text (using fixed ID or sequence for AI turn)
-                    // For now, we'll just log it. In a full UI update, we'd update a "current" bubble.
+                    // Feed to Transcript Manager for accumulation
+                    transcriptManagerRef.current?.appendAiText(text);
                 },
                 onTurnComplete: () => {
-                    console.log("[Room] Turn complete. Checking for pending commits...");
+                    console.log("[Room] Turn complete. Processing transcripts and transitioning to LISTENING...");
                     
-                    // 1. Commit AI Text if present
-                    if (currentAiTextRef.current) {
-                        const finalAiText = currentAiTextRef.current;
+                    // 1. Commit AI Text via Transcript Manager
+                    const finalAiText = transcriptManagerRef.current?.commitAiTurn() || currentAiTextRef.current;
+                    if (finalAiText) {
                         console.log("[Room] Committing AI Transcription:", finalAiText);
                         addToTranscript({
                             speaker: "interviewer",
@@ -412,28 +541,26 @@ Tone: Concise, technical, and natural.`;
                         
                         currentAiTextRef.current = "";
                     }
-
-                    // 2. Commit User Text if present (from audio transcription)
-                    if (currentUserTextRef.current) {
-                        const finalUserText = currentUserTextRef.current;
-                        console.log("[Room] Committing User Transcription:", finalUserText);
-                        addToTranscript({
-                            speaker: "candidate",
-                            text: finalUserText,
-                            sequenceNumber: Date.now() + 1,
-                        });
-                        
-                        addTranscriptChunk(orgId!, interviewId, {
-                            speaker: "candidate",
-                            text: finalUserText,
-                            sequenceNumber: Date.now() + 1,
-                        }).catch(e => console.error("[Room] Failed to log user transcript:", e));
-                        
-                        currentUserTextRef.current = "";
-                    }
+                    
+                    // Clear the streaming text
+                    currentUserTextRef.current = "";
                     
                     setIsSpeaking(false);
+                    
+                    // CRITICAL: Transition to LISTENING via controller (short cooldown)
+                    if (micCooldownRef.current) clearTimeout(micCooldownRef.current);
+                    micCooldownRef.current = setTimeout(() => {
+                        console.log("[Room] Mic cooldown complete, transitioning to LISTENING");
+                        turnControllerRef.current?.onModelTurnComplete();
+                    }, 500); // 500ms cooldown for fast response
+                    
                     resetWatchdog();
+                },
+                onGenerationComplete: () => {
+                    console.log("[Room] Generation complete - clean turn boundary");
+                    // CheatingDaddy pattern: generation complete signals output is finalized
+                    // Reset buffers for next turn
+                    turnControllerRef.current?.onGenerationComplete();
                 },
                 onError: (error: Error) => {
                     console.error("[Room] Gemini error:", error);
@@ -443,7 +570,24 @@ Tone: Concise, technical, and natural.`;
                 },
                 onClose: () => {
                     console.log("[Room] Gemini connection closed");
-                    if (!isReadyRef.current) {
+                    
+                    // CheatingDaddy-style auto-reconnect for idle sessions
+                    // Only reconnect if we were previously ready and not ending the interview
+                    if (isReadyRef.current && !isEvaluatorMode) {
+                        console.log("[Room] Auto-reconnecting after idle/disconnect...");
+                        
+                        // Reset controller for session resumption
+                        turnControllerRef.current?.resumeSession();
+                        
+                        // Wait a moment then reconnect
+                        setTimeout(() => {
+                            if (!geminiClientRef.current?.connected) {
+                                console.log("[Room] Attempting reconnection...");
+                                setConnectionState("IDLE");
+                                connectToLiveAPI();
+                            }
+                        }, 2000);
+                    } else if (!isReadyRef.current) {
                         setConnectionError("Connection closed before ready");
                         setConnectionState("ERROR");
                         setShowRetry(true);
