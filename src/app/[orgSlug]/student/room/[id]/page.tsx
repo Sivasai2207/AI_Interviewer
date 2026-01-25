@@ -386,23 +386,33 @@ export default function InterviewRoomPage() {
                             }
                             
                             // Get cleaned transcript and commit via Turn Controller
-                            const cleanText = transcriptManagerRef.current?.getCleanedUserText() || "";
+                            let cleanText = transcriptManagerRef.current?.getCleanedUserText() || "";
+                            
+                            // CRITICAL FIX: If transcript is empty but user spoke significantly (>2s), 
+                            // force a commit with placeholder to prevent deadlock.
+                            if (!cleanText && totalSpeechMs > 2000) {
+                                console.warn(`[Room] Empty transcript but robust speech (${totalSpeechMs}ms). Forcing commit.`);
+                                cleanText = "[User Provided Audio Answer]";
+                            }
                             
                             if (cleanText && turnControllerRef.current) {
                                 // Commit user answer via controller (sends committed text turn)
                                 turnControllerRef.current.commitUserAnswer(cleanText);
                                 
-                                // Log to transcript store
+                                // Only log/persist real text, not the placeholder if possible, 
+                                // or log placeholder to indicate audio-only turn.
+                                const isPlaceholder = cleanText === "[User Provided Audio Answer]";
+                                
                                 addToTranscript({
                                     speaker: "candidate",
-                                    text: cleanText,
+                                    text: isPlaceholder ? "🔊 (Audio Answer)" : cleanText,
                                     sequenceNumber: Date.now(),
                                 });
                                 
                                 // Persist to Firestore
                                 addTranscriptChunk(orgId!, interviewId, {
                                     speaker: "candidate",
-                                    text: cleanText,
+                                    text: isPlaceholder ? "🔊 (Audio Answer)" : cleanText,
                                     sequenceNumber: Date.now(),
                                 }).catch(e => console.error("[Room] Failed to log user transcript:", e));
                                 
