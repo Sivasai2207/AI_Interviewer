@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb, adminAuth } from "@/lib/firebase/admin";
 import { decryptApiKey } from "@/lib/utils/crypto";
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/student/get-api-key
  * 
