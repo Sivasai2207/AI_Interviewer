@@ -16,7 +16,7 @@ export function CheckPasswordReset({ children }: { children: React.ReactNode }) 
             // If user must reset password
             if (userProfile.mustResetPassword) {
                 // Check if not already on setup page
-                if (!pathname.includes("/setup-password")) {
+                if (!pathname?.includes("/setup-password")) {
                     console.log("[CheckPasswordReset] User must reset password. Redirecting...");
                     router.push(`/${orgSlug}/setup-password`);
                 }
@@ -26,7 +26,7 @@ export function CheckPasswordReset({ children }: { children: React.ReactNode }) 
                  // For now, allow it (maybe they want to change it again? But logic implies force reset).
                  // Actually the page is "Setup New Password" contextually.
                  // If they are on setup-password but don't need to, maybe redirect to dashboard?
-                 if (pathname.includes("/setup-password")) {
+                 if (pathname?.includes("/setup-password")) {
                      const role = userProfile.role;
                      if (role === "student") {
                          router.push(`/${orgSlug}/student`);

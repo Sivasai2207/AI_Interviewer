@@ -54,14 +54,11 @@ export default function SetupPasswordPage() {
 
                 setSuccess(true);
                 
-                // Redirect after short delay
+                // Force a full reload to ensure AuthProvider fetches fresh profile data (mustResetPassword: false)
                 setTimeout(() => {
                     const role = userProfile.role;
-                    if (role === "student") {
-                        router.push(`/${orgSlug}/student`);
-                    } else {
-                        router.push(`/${orgSlug}/admin`);
-                    }
+                    const targetPath = role === "student" ? `/${orgSlug}/student` : `/${orgSlug}/admin`;
+                    window.location.href = targetPath;
                 }, 1500);
             } else {
                 setError("User not authenticated");

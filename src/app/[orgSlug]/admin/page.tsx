@@ -84,7 +84,7 @@ export default function OrgAdminDashboardPage() {
             </div>
 
             {/* Stats Grid */}
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-6 md:grid-cols-2">
                 <StatsCard
                     title="Total Students"
                     value={stats?.studentCount || 0}
@@ -99,24 +99,6 @@ export default function OrgAdminDashboardPage() {
                     icon={GraduationCap}
                     trend="Stable"
                     color="bg-gradient-to-br from-purple-500 to-purple-600"
-                    textColor="text-white"
-                />
-                <StatsCard
-                    title="Total Interviews"
-                    value={stats?.interviewCount || 0}
-                    icon={Briefcase}
-                    trend="+5 new today"
-                    color="bg-gradient-to-br from-indigo-500 to-indigo-600"
-                    textColor="text-white"
-                />
-                <StatsCard
-                    title="Active Sessions"
-                    value={stats?.interviewsThisWeek || 0}
-                    icon={Clock}
-                    trend="Updated just now"
-                    color="bg-gradient-to-br from- emerald-500 to-emerald-600" // using standard emerald if tailwind supports, else green
-                    // Fallback to green if emerald not in base
-                    fallbackColor="bg-gradient-to-br from-green-500 to-green-600"
                     textColor="text-white"
                 />
             </div>

@@ -120,7 +120,7 @@ export default function PlatformAdminLayout({
                         {platformNavItems.map((item) => {
                             const Icon = item.icon;
                             const isActive = pathname === item.href || 
-                                (item.href !== "/admin" && pathname.startsWith(item.href));
+                                (item.href !== "/admin" && (pathname?.startsWith(item.href) ?? false));
                             
                             return (
                                 <Link

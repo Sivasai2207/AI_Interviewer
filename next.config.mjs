@@ -6,6 +6,9 @@ const nextConfig = {
     config.resolve.alias.canvas = false;
     return config;
   },
+  experimental: {
+    serverComponentsExternalPackages: ["ws"],
+  },
 };
 
 export default nextConfig;

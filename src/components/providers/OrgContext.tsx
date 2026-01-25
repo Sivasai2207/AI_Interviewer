@@ -33,7 +33,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     const { user, role, orgId: userOrgId, isPlatformOwner, impersonationSession, loading: authLoading } = useAuth();
     
     // Ensure orgSlug is a string and handle array case just in case
-    const rawSlug = params.orgSlug;
+    const rawSlug = params?.orgSlug;
     const orgSlug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug as string;
 
     const [organization, setOrganization] = useState<Organization | null>(null);
@@ -60,7 +60,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
 
         // Auth check after org loads
         if (!isLoading && organization && !authLoading) {
-            const isLoginPage = pathname.endsWith("/login");
+            const isLoginPage = pathname?.endsWith("/login") ?? false;
             
             // If it's login page, no auth check needed
             if (isLoginPage) {
@@ -104,7 +104,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
             }
 
             // Role-based routing within org for regular users
-            const isAdminRoute = pathname.includes(`/${orgSlug}/admin`);
+            const isAdminRoute = pathname?.includes(`/${orgSlug}/admin`) ?? false;
 
             if (isAdminRoute && role !== "super_admin" && role !== "staff") {
                 console.log("[OrgProvider] Non-admin accessing admin route. Redirecting to student portal.");

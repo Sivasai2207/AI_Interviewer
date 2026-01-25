@@ -111,6 +111,21 @@ export interface Organization {
         primaryColor?: string;
         allowGoogleSignIn?: boolean;
     };
+    interviewPolicy?: InterviewPolicy;
+}
+
+export interface InterviewPolicy {
+    requireConsent: boolean;
+    recordAudio: boolean;
+    recordVideo: boolean;
+    captureTranscript: boolean;
+    tabSwitchMonitoring: boolean;
+    maxTabSwitchWarnings: number;
+    autoEndOnViolation: boolean;
+    requireIdentityVerification: boolean;
+    retentionDays: number;
+    policyText?: string;
+    policyLink?: string;
 }
 
 export interface OrgSlugMapping {
@@ -156,8 +171,27 @@ export interface UserProfile {
     createdAt: Timestamp;
     updatedAt: Timestamp;
     settings: UserSettings;
-    apiKeyStatus: "valid" | "invalid" | "unknown";
-    apiKeyEncrypted?: string;
+    // API Key for Gemini (students)
+    aiKey?: {
+        status: "missing" | "pending" | "verified" | "invalid";
+        provider: "google_ai_studio";
+        masked: string; // e.g., "AIza...abcd"
+        updatedAt: Timestamp;
+        verifiedAt?: Timestamp;
+        lastError?: string;
+    };
+    aiKeyEncrypted?: string; // AES-GCM encrypted key (server-side only)
+    // Student onboarding fields
+    targetRoles?: string[];
+    onboarding?: {
+        completed: boolean;
+        completedAt?: Timestamp;
+    };
+    activeSession?: {
+        sessionId: string;
+        deviceId: string;
+        lastSeenAt: Timestamp;
+    };
 }
 
 export interface UserSettings {
@@ -188,9 +222,31 @@ export interface Interview {
     jdYearsRequired?: string;
     resumeText: string;
     resumeFileName?: string;
+    resumeUrl?: string;
+    resumeHash?: string;
     status: InterviewStatus;
     endedEarly: boolean;
     lastActiveAt?: Timestamp;
+    // Compliance Gate Fields
+    precheck?: {
+        rulesAcceptedAt: Timestamp;
+        consentAcceptedAt: Timestamp;
+        consentVersion: string;
+    };
+    identityVerification?: {
+        required: boolean;
+        submittedAt?: Timestamp;
+        idCardUrl?: string;
+        selfieUrl?: string;
+    };
+    proctoring?: {
+        tabSwitchCount: number;
+        warningsIssued: number;
+        endedForViolation: boolean;
+    };
+    // Intro State
+    introPlayed?: boolean;
+    introPlayedAt?: Timestamp;
 }
 
 export type InterviewEventType =

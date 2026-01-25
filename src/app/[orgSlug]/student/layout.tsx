@@ -71,13 +71,29 @@ export default function StudentLayout({
         );
     }
 
+    // Onboarding guard: Redirect students who haven't completed onboarding
+    const isOnboardingPage = pathname?.includes("/student/onboarding") ?? false;
+    const onboardingCompleted = userProfile?.onboarding?.completed === true;
+    
+    if (role === "student" && !onboardingCompleted && !isOnboardingPage) {
+        router.push(`/${orgSlug}/student/onboarding`);
+        return (
+            <div className="flex min-h-screen items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        );
+    }
+
     // Check if staff/admin viewing student portal
     const isStaffViewing = role === "staff" || role === "super_admin";
+
+    // Check if we are in the interview room
+    const isInterviewRoom = pathname?.includes("/student/room/") ?? false;
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
             {/* Staff viewing banner */}
-            {isStaffViewing && (
+            {isStaffViewing && !isInterviewRoom && (
                 <div className="bg-blue-500 text-white px-4 py-2 text-center text-sm">
                     You are viewing the student portal as {role}. 
                     <Link href={`/${orgSlug}/admin`} className="ml-2 underline">
@@ -86,7 +102,8 @@ export default function StudentLayout({
                 </div>
             )}
 
-            {/* Top Nav */}
+            {/* Top Nav - Hidden in Interview Room */}
+            {!isInterviewRoom && (
             <nav className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-lg">
                 <div className="container mx-auto flex h-16 items-center justify-between px-4">
                     <Link href={`/${orgSlug}/student`} className="flex items-center gap-2">
@@ -102,7 +119,7 @@ export default function StudentLayout({
                             const Icon = item.icon;
                             const isActive = item.exact
                                 ? pathname === item.href
-                                : pathname.startsWith(item.href);
+                                : pathname?.startsWith(item.href) ?? false;
 
                             return (
                                 <Link key={item.href} href={item.href}>
@@ -134,9 +151,10 @@ export default function StudentLayout({
                     </div>
                 </div>
             </nav>
+            )}
 
-            {/* Main Content */}
-            <main className="container mx-auto p-4 md:p-6">
+            {/* Main Content - No container/padding in Room */}
+            <main className={isInterviewRoom ? "" : "container mx-auto p-4 md:p-6"}>
                 {children}
             </main>
         </div>

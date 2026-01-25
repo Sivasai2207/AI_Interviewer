@@ -182,9 +182,9 @@ export default function OrgAdminLayout({
                                 <div className="space-y-1">
                                     {group.items.map((item) => {
                                         const Icon = item.icon;
-                                        const isActive = item.exact 
-                                            ? pathname === item.href 
-                                            : pathname.startsWith(item.href);
+                                        const isActive = pathname 
+                                            ? (item.exact ? pathname === item.href : pathname.startsWith(item.href))
+                                            : false;
 
                                         return (
                                             <Link

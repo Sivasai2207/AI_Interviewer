@@ -70,51 +70,41 @@ export function Timer({ className, onTimeUp, onWarning }: TimerProps) {
     >
       <div
         className={cn(
-          "flex items-center gap-2 rounded-lg px-4 py-2 transition-all",
-          isWarning && !isCritical && "bg-warning/10 animate-pulse",
-          isCritical && "bg-destructive/10 animate-timer-pulse",
-          !isWarning && "bg-secondary"
+          "flex items-center gap-2 rounded-lg px-4 py-2 transition-all backdrop-blur-sm",
+          // No background color by default, just white text
+          // Blink only in critical phase (last 60s)
+          isCritical && "animate-timer-pulse"
         )}
       >
         {isWarning ? (
           <AlertTriangle
             className={cn(
               "h-5 w-5",
-              isCritical ? "text-destructive" : "text-warning"
+              isCritical ? "text-red-500" : "text-amber-500"
             )}
           />
         ) : (
-          <Clock className="h-5 w-5 text-muted-foreground" />
+          <Clock className="h-5 w-5 text-white/80" />
         )}
         <span
           className={cn(
             "font-mono text-2xl font-bold tabular-nums",
-            isCritical && "text-destructive",
-            isWarning && !isCritical && "text-warning"
+            // Colors: White -> Red (last 2 mins) -> Red + Blink (last 60s)
+            isWarning ? "text-red-500" : "text-white"
           )}
         >
           {formatTime(timer.remainingSeconds)}
         </span>
       </div>
 
-      {/* Progress bar */}
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-        <div
-          className={cn(
-            "h-full transition-all duration-1000",
-            isCritical && "bg-destructive",
-            isWarning && !isCritical && "bg-warning",
-            !isWarning && "bg-primary"
-          )}
-          style={{ width: `${progressPercent}%` }}
-        />
-      </div>
-
       {isWarning && (
-        <p className="text-xs text-muted-foreground">
+        <p className={cn(
+            "text-xs text-center font-medium",
+            isCritical ? "text-red-500" : "text-red-400"
+        )}>
           {isCritical
-            ? "Interview ending soon..."
-            : "Wrapping up shortly"}
+            ? "Ending soon..."
+            : "Wrap up"}
         </p>
       )}
     </div>

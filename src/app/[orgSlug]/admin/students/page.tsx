@@ -417,6 +417,20 @@ export default function OrgStudentsPage() {
                                                 </span>
                                              )}
                                          </div>
+                                         {student.targetRoles && student.targetRoles.length > 0 && (
+                                            <div className="flex flex-wrap gap-1 mt-1">
+                                                {student.targetRoles.slice(0, 2).map((role) => (
+                                                    <span key={role} className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                                                        {role.length > 20 ? role.substring(0, 18) + "..." : role}
+                                                    </span>
+                                                ))}
+                                                {student.targetRoles.length > 2 && (
+                                                    <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs">
+                                                        +{student.targetRoles.length - 2}
+                                                    </span>
+                                                )}
+                                            </div>
+                                         )}
                                      </div>
                                 </div>
 

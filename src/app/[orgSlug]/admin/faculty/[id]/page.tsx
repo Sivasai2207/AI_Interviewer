@@ -27,7 +27,7 @@ export default function FacultyDetailPage() {
     const params = useParams();
     const router = useRouter();
     const { orgId, orgSlug } = useOrg();
-    const facultyId = params.id as string;
+    const facultyId = params?.id as string;
 
     const [faculty, setFaculty] = useState<UserProfile | null>(null);
     const [isLoading, setIsLoading] = useState(true);

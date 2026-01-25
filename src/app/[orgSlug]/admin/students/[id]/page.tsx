@@ -76,8 +76,8 @@ export default function StudentDetailPage() {
     const params = useParams();
     const router = useRouter();
     const { orgId, orgSlug } = useOrg();
-    const { role } = useAuth();
-    const studentId = params.id as string;
+    const { user, role } = useAuth();
+    const studentId = params?.id as string;
 
     const [student, setStudent] = useState<UserProfile | null>(null);
     const [stats, setStats] = useState<StudentPerformanceStats | null>(null);
@@ -92,6 +92,11 @@ export default function StudentDetailPage() {
     });
     const [editLoading, setEditLoading] = useState(false);
     const [editError, setEditError] = useState("");
+
+    // Password reset state
+    const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+    const [newPassword, setNewPassword] = useState("");
+    const [passwordLoading, setPasswordLoading] = useState(false);
 
     useEffect(() => {
         if (orgId && studentId) {
@@ -170,6 +175,43 @@ export default function StudentDetailPage() {
             setEditError(error.message || "Failed to update");
         } finally {
             setEditLoading(false);
+        }
+    };
+
+    const handleManualPasswordReset = async () => {
+        if (!student || !user || !newPassword) return;
+        if (newPassword.length < 6) {
+            alert("Password must be at least 6 characters");
+            return;
+        }
+
+        setPasswordLoading(true);
+        try {
+            const res = await fetch("/api/admin/set-user-password", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    uid: student.id,
+                    password: newPassword,
+                    orgId,
+                    actorUid: user.uid,
+                    actorEmail: user.email,
+                }),
+            });
+
+            const data = await res.json();
+            if (res.ok && data.success) {
+                alert("Password updated successfully. User will be forced to change it on next login.");
+                setIsPasswordDialogOpen(false);
+                setNewPassword("");
+            } else {
+                alert(data.error || "Failed to update password");
+            }
+        } catch (error) {
+            console.error("Error setting password:", error);
+            alert("Failed to set password");
+        } finally {
+            setPasswordLoading(false);
         }
     };
 
@@ -452,6 +494,52 @@ export default function StudentDetailPage() {
                     </CardContent>
                 </Card>
 
+                {/* Preferences / Target Roles */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Target className="h-5 w-5 text-primary" />
+                            Preferences
+                        </CardTitle>
+                        <CardDescription>Student's interview preparation goals</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div>
+                            <p className="text-sm text-muted-foreground mb-2">Target Roles</p>
+                            {student.targetRoles && student.targetRoles.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                    {student.targetRoles.map((role) => (
+                                        <span
+                                            key={role}
+                                            className="px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium"
+                                        >
+                                            {role}
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-muted-foreground italic">No target roles selected</p>
+                            )}
+                        </div>
+                        <div className="border-t pt-4">
+                            <p className="text-sm text-muted-foreground mb-1">Onboarding Status</p>
+                            {student.onboarding?.completed ? (
+                                <div className="flex items-center gap-2 text-green-600">
+                                    <Check className="h-4 w-4" />
+                                    <span className="text-sm font-medium">
+                                        Completed {student.onboarding.completedAt?.toDate?.()?.toLocaleDateString() || ""}
+                                    </span>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2 text-yellow-600">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <span className="text-sm font-medium">Pending</span>
+                                </div>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+
                 {/* Actions */}
                 <Card>
                     <CardHeader>
@@ -460,9 +548,57 @@ export default function StudentDetailPage() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                         <Button variant="outline" className="w-full justify-start" onClick={handleResetPassword}>
-                            <KeyRound className="mr-2 h-4 w-4" />
+                            <Mail className="mr-2 h-4 w-4" />
                             Send Password Reset Email
                         </Button>
+
+                        <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" className="w-full justify-start border-orange-200 text-orange-700 hover:bg-orange-50 hover:text-orange-800">
+                                    <KeyRound className="mr-2 h-4 w-4" />
+                                    Manual Password Override
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Manual Password Override</DialogTitle>
+                                    <DialogDescription>
+                                        Set a new temporary password for <b>{student.displayName}</b>. 
+                                        Only use this if the user cannot access their email.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4 py-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="new-password">New Temporary Password</Label>
+                                        <Input 
+                                            id="new-password"
+                                            type="text" 
+                                            placeholder="Enter new password (min 6 chars)"
+                                            value={newPassword}
+                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            className="font-mono"
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            The user will be strictly forced to change this password immediately upon their next login.
+                                        </p>
+                                    </div>
+                                    <div className="rounded-md bg-yellow-50 p-3 text-sm text-yellow-800 flex items-start gap-2">
+                                        <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                                        <p>This action will immediately invalidate the user's current password.</p>
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-3">
+                                    <Button variant="outline" onClick={() => setIsPasswordDialogOpen(false)}>Cancel</Button>
+                                    <Button 
+                                        onClick={handleManualPasswordReset} 
+                                        disabled={!newPassword || newPassword.length < 6 || passwordLoading}
+                                    >
+                                        {passwordLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                        Set Password
+                                    </Button>
+                                </div>
+                            </DialogContent>
+                        </Dialog>
                         
                         {student.status === "suspended" ? (
                             <Button variant="outline" className="w-full justify-start text-green-600" onClick={handleReactivate}>

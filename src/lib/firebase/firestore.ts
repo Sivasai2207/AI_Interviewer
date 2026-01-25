@@ -638,7 +638,6 @@ export async function createOrgUser(
             mustResetPassword: true,
             createdBy: createdByUid,
             settings: {},
-            apiKeyStatus: "unknown",
         });
 
         console.log(`[Firestore] ✅ User profile created in Firestore users/${uid}`);

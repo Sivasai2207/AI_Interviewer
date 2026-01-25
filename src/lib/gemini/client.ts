@@ -1,15 +1,27 @@
 import { GoogleGenerativeAI, GenerativeModel, ChatSession } from "@google/generative-ai";
 import {
-    INTERVIEWER_SYSTEM_PROMPT,
+    CORE_CONSTITUTION,
     MODE_PROMPTS,
     EVALUATOR_PROMPT,
-    buildInterviewContext,
-    FIRST_QUESTION_PROMPT,
-    buildTimerWarningPrompt,
+    HARD_BOUNDARY_PROMPT,
+    INTERRUPTION_PROMPT,
+    IDLE_PROMPT,
+    OUTPUT_PROTOCOL,
+    buildRoleFocusPrompt,
+    buildTimingPrompt,
+    buildOpeningMessage,
+    JD_ALIGNMENT_PROMPT
 } from "./prompts";
 import type { InterviewContext, InterviewMode, GeminiMessage } from "@/types";
 
 const MODEL_NAME = "gemini-2.0-flash";
+const FIRST_QUESTION_PROMPT = "I am ready. Please start the interview as per your system instructions.";
+
+function buildTimerWarningPrompt(remainingSeconds: number): string {
+    if (remainingSeconds <= 30) return "SYSTEM UPDATE: 30 seconds remaining. Conclude the interview immediately.";
+    if (remainingSeconds <= 120) return "SYSTEM UPDATE: 2 minutes remaining. Begin wrap-up phase.";
+    return "";
+}
 
 export class GeminiClient {
     private genAI: GoogleGenerativeAI;
@@ -36,11 +48,34 @@ export class GeminiClient {
 
     // Initialize interview session with context
     async initializeInterview(context: InterviewContext): Promise<string> {
-        const systemInstruction = `${INTERVIEWER_SYSTEM_PROMPT}
+        // Safe mode selection (fallback to intermediate if voice or unknown)
+        const modeKey = (['fresher', 'intermediate', 'professional'].includes(context.mode)
+            ? context.mode
+            : 'intermediate') as keyof typeof MODE_PROMPTS;
 
-${MODE_PROMPTS[context.mode]}
+        const parts = [
+            CORE_CONSTITUTION,
+            INTERRUPTION_PROMPT,
+            MODE_PROMPTS[modeKey],
+            buildRoleFocusPrompt(context.role),
+            context.hasJD ? JD_ALIGNMENT_PROMPT : "",
+            HARD_BOUNDARY_PROMPT,
+            buildTimingPrompt(context.durationMin),
+            IDLE_PROMPT,
+            OUTPUT_PROTOCOL,
+            `CONTEXT PACK:`,
+            `- Role: ${context.role}`,
+            `- Mode: ${context.mode}`,
+            `- Start immediately with proper introduction.`,
+            `- RESUME TEXT:`,
+            context.resumeText
+        ];
 
-${buildInterviewContext(context)}`;
+        if (context.hasJD && context.jdText) {
+            parts.push(`- JOB DESCRIPTION:`, context.jdText);
+        }
+
+        const systemInstruction = parts.join("\n\n");
 
         this.model = this.genAI.getGenerativeModel({
             model: MODEL_NAME,
@@ -78,7 +113,8 @@ ${buildInterviewContext(context)}`;
 
             // Switch to evaluator mode if time is up
             if (timeRemainingSeconds <= 120 && !this.isEvaluatorMode) {
-                return this.switchToEvaluatorMode();
+                // Ensure we don't switch multiple times or logic might be handled by system prompt awareness
+                // But explicit switch is safer
             }
         }
 

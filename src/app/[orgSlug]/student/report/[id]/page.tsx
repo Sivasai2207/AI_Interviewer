@@ -23,7 +23,7 @@ export default function InterviewReportPage() {
     const params = useParams();
     const router = useRouter();
     const { orgId, orgSlug } = useOrg();
-    const interviewId = params.id as string;
+    const interviewId = params?.id as string;
 
     const [report, setReport] = useState<InterviewReport | null>(null);
     const [interview, setInterview] = useState<Interview | null>(null);

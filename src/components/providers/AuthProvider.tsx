@@ -235,6 +235,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
     }, [updateLastActivity]);
 
+    // Single Session Enforcement
+    useEffect(() => {
+        if (!user || !isFirebaseConfigured) return;
+
+        // 1. Get or Create Session ID
+        let sessionId = localStorage.getItem("sessionId");
+        if (!sessionId) {
+            sessionId = crypto.randomUUID();
+            localStorage.setItem("sessionId", sessionId);
+        }
+
+        // 2. Register Session & Start Heartbeat
+        const registerSession = async () => {
+            try {
+                const { doc, updateDoc, onSnapshot, getDoc } = await import("firebase/firestore");
+                const { db } = await import("@/lib/firebase/config");
+                if (!db) return;
+
+                const userRef = doc(db, "users", user.uid);
+                
+                // Write active session
+                await updateDoc(userRef, {
+                    activeSession: {
+                        sessionId,
+                        deviceId: navigator.userAgent,
+                        lastSeenAt: new Date(),
+                    }
+                });
+                console.log("[Session] Registered active session:", sessionId);
+
+                // Heartbeat
+                const heartbeat = setInterval(async () => {
+                   try {
+                       await updateDoc(userRef, {
+                           "activeSession.lastSeenAt": new Date()
+                       });
+                   } catch (e) { console.error("Heartbeat failed", e); }
+                }, 15000);
+
+                // Listen for conflicts
+                const unsubscribe = onSnapshot(userRef, async (snapshot) => {
+                    const data = snapshot.data();
+                    if (data?.activeSession?.sessionId && data.activeSession.sessionId !== sessionId) {
+                         console.warn("[Session] Conflict detected! Another device logged in.");
+                         alert("You were logged out because your account was opened elsewhere.");
+                         await signOut();
+                         window.location.reload();
+                    }
+                });
+
+                return () => {
+                    clearInterval(heartbeat);
+                    unsubscribe();
+                };
+
+            } catch (e) {
+                console.error("Failed to register session:", e);
+            }
+        };
+
+        const cleanupPromise = registerSession();
+
+        return () => {
+            cleanupPromise.then(cleanup => cleanup && cleanup());
+        };
+    }, [user]);
+
     const isPlatformOwner = role === "platform_owner";
     const isOrgAdmin = role === "super_admin";
     const isOrgStaff = role === "staff" || role === "super_admin";
