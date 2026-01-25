@@ -39,3 +39,5 @@ next-env.d.ts
 !.vscode/launch.json
 !.vscode/tasks.json
 .idea
+interview-ai-1f679-firebase-adminsdk*.json
+*firebase-adminsdk*.json

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useCallback } from "react";
+import React, { useEffect, useCallback, useRef } from "react";
 import { cn, formatTime } from "@/lib/utils";
 import { useInterviewStore } from "@/store";
 import { Clock, AlertTriangle } from "lucide-react";
@@ -13,29 +13,46 @@ interface TimerProps {
 
 export function Timer({ className, onTimeUp, onWarning }: TimerProps) {
   const { timer, updateTimer, isEvaluatorMode } = useInterviewStore();
+  
+  // Use refs to avoid recreating the interval every second
+  const remainingRef = useRef(timer.remainingSeconds);
+  const onTimeUpRef = useRef(onTimeUp);
+  const onWarningRef = useRef(onWarning);
+  
+  // Keep refs in sync
+  useEffect(() => {
+    remainingRef.current = timer.remainingSeconds;
+  }, [timer.remainingSeconds]);
+  
+  useEffect(() => {
+    onTimeUpRef.current = onTimeUp;
+    onWarningRef.current = onWarning;
+  }, [onTimeUp, onWarning]);
 
   useEffect(() => {
-    if (!timer.isRunning || timer.remainingSeconds <= 0) return;
+    if (!timer.isRunning) return;
 
     const interval = setInterval(() => {
-      const newRemaining = timer.remainingSeconds - 1;
+      const newRemaining = remainingRef.current - 1;
 
       if (newRemaining <= 0) {
         updateTimer({ remainingSeconds: 0, isRunning: false });
-        onTimeUp?.();
+        onTimeUpRef.current?.();
+        clearInterval(interval);
         return;
       }
 
       // Warning at 2 minutes
-      if (newRemaining === 120 && onWarning) {
-        onWarning();
+      if (newRemaining === 120 && onWarningRef.current) {
+        onWarningRef.current();
       }
 
+      remainingRef.current = newRemaining;
       updateTimer({ remainingSeconds: newRemaining });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [timer.isRunning, timer.remainingSeconds, updateTimer, onTimeUp, onWarning]);
+  }, [timer.isRunning, updateTimer]); // Only depends on isRunning, not remainingSeconds
 
   const progressPercent =
     timer.totalSeconds > 0

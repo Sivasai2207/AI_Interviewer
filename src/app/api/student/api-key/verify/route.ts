@@ -3,6 +3,8 @@ import { adminDb } from "@/lib/firebase/admin";
 import { encryptApiKey, maskApiKey } from "@/lib/utils/crypto";
 import { Timestamp } from "firebase-admin/firestore";
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
     try {
         const { uid, orgId, apiKey } = await req.json();
