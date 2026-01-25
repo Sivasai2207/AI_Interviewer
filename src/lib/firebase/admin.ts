@@ -27,8 +27,20 @@ if (!admin.apps.length) {
                     projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
                 });
             }
+        } else if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+            // Use individual environment variables (easier for Vercel)
+            const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+
+            admin.initializeApp({
+                credential: admin.credential.cert({
+                    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID,
+                    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                    privateKey: privateKey,
+                }),
+            });
+            console.log("[Firebase Admin] Initialized with individual environment variables");
         } else {
-            // Use Application Default Credentials (development)
+            // Use Application Default Credentials (development/GCP)
             admin.initializeApp({
                 credential: admin.credential.applicationDefault(),
                 projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
