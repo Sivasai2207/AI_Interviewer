@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Shield, Loader2, Mail, Lock, AlertCircle, Key } from "lucide-react";
 
-const PLATFORM_SETUP_KEY = "PLATFORM2024";
+const PLATFORM_SETUP_KEY = "SaiKomm@220822";
 
 export default function PlatformAdminLoginPage() {
     const router = useRouter();
